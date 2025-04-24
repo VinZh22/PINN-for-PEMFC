@@ -97,19 +97,27 @@ class Loss:
         self.loss_epoch_tmp.zero_()
         self.loss_total.zero_() 
 
+    def compute_pde_loss(self, txy_col, output, outflow_eq = True):
+        continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim)
+        tmp = torch.mean(continuity**2) + torch.mean(momentum_x**2) + torch.mean(momentum_y**2) + outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2)
+        return tmp.to(self.device)
+
+
     def pde_loss(self, txy_col, output, outflow_eq = True):
         assert self.loss_pde_tmp==0 ## otherwise we need to call new_batch before it 
-        continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim)
-        tmp= torch.mean(continuity**2) + torch.mean(momentum_x**2) + torch.mean(momentum_y**2) + outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2)
-        tmp = tmp.to(self.device)
+        tmp = self.compute_pde_loss(txy_col, output, outflow_eq)
         self.loss_pde += tmp
         self.loss_pde_tmp = tmp
+        return tmp
+    
+    def compute_data_loss(self, output, target):
+        tmp = nn.MSELoss()(output, target).to(self.device)
         return tmp
 
     def data_loss(self, output, target):
         assert self.loss_data_tmp==0 ## otherwise we need to call new_batch before it
 
-        tmp = nn.MSELoss()(output, target).to(self.device)
+        tmp = self.compute_data_loss(output, target)
         self.loss_data += tmp
         self.loss_data_tmp = tmp
         return tmp

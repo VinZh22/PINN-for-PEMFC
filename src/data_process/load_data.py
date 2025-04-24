@@ -16,7 +16,7 @@ def convert_to_numpy(data, nondim_input = None, nondim_output = None):
     Returns
     -------
     X_data : np.ndarray
-        The input data as a numpy array.
+        The input data as a numpy array. (t,x,y)
     Y_data : np.ndarray
         The output data as a numpy array.
     """
