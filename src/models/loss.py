@@ -122,6 +122,39 @@ class Loss:
         self.loss_data_tmp = tmp
         return tmp
     
+    def compute_boundary_loss(self, txy_col, output):
+        """
+        txy_col: [N, 3] tensor of points in the domain
+        output: [N, 3] tensor of outputs at those points
+        boundary: [N, 3] tensor of boundary conditions at those points
+        """
+        boundary = torch.zeros_like(output).to(self.device)
+        tmp = nn.MSELoss()(output, boundary).to(self.device)
+        return tmp
+    
+    def boundary_loss(self, txy_col, output):
+        assert self.loss_boundary_tmp==0
+        tmp = self.compute_boundary_loss(txy_col, output)
+        self.loss_boundary += tmp
+        self.loss_boundary_tmp = tmp
+        return tmp
+    
+    def compute_initial_loss(self, txy_col, output, target):
+        """
+        txy_col: [N, 3] tensor of points in the domain
+        output: [N, 3] tensor of outputs at those points
+        initial: [N, 3] tensor of initial conditions at those points
+        """
+        tmp = nn.MSELoss()(output, target).to(self.device)
+        return tmp
+
+    def initial_loss(self, txy_col, output, target):
+        assert self.loss_initial_tmp==0
+        tmp = self.compute_initial_loss(txy_col, output, target)
+        self.loss_initial += tmp
+        self.loss_initial_tmp = tmp
+        return tmp
+
     def get_total_loss(self, pde, data = 0., bc = 0., ic = 0.):
         """
         We should at least have the loss for pde residual (the whole point of PINN)

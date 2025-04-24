@@ -40,8 +40,8 @@ train_obj = train.Train_Loop_nodata(
 )
 
 final_model = train_obj.train_pinn(
-    config=[-20, 30, -20, 20, 0, 1, 200, False, 50],
-    train_prop=0.01,
+    config=[-20, 30, -20, 20, 0, 1, 30, False, 50],
+    train_prop=0.6,
     nu=0.01,
     epochs=5000,
     nondim_input=forward_transform_input,

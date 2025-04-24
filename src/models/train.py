@@ -8,6 +8,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
 
 from abc import ABC, abstractmethod
 from tqdm import tqdm
@@ -102,6 +103,12 @@ class Train_Loop(ABC):
 
     def get_loss_history(self):
         return self.loss_history_train, self.loss_history_test
+    
+    def save_model(self, path):
+        """
+        Save the model to a file.
+        """
+        torch.save(self.model.state_dict(), os.path.join(path,'model_weights.pth'))
 
     @abstractmethod
     def update_progress_bar(self, progress_bar, loss_test, num_batches):
@@ -163,6 +170,15 @@ class Train_Loop_data(Train_Loop):
         """
         file_path = config
         return import_data(file_path, nondim_input, nondim_output)
+    
+    def update_progress_bar(self, progress_bar, loss_test, num_batches):
+        progress_bar.set_postfix(
+            loss_pde=float(self.loss_obj.get_loss_pde()) / num_batches,
+            loss_data=float(self.loss_obj.get_loss_data()) / num_batches,
+            loss_test = float(loss_test.item()),
+            lambda_pde=float(self.lambda_pde),
+            lambda_data=float(self.lambda_data),
+        )
 
 class Train_Loop_nodata(Train_Loop):
     def __init__(self, model, device):
@@ -170,12 +186,19 @@ class Train_Loop_nodata(Train_Loop):
         
 
         ## TO DO along with compute_loss for BC
-        x = 0.5*torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
-        y = 0.5*torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        x = torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        y = torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
         t = torch.arange(0, 150.).reshape(-1,1)
         X, Y, T = np.meshgrid(x, y, t)
         self.BC_geom = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
         self.BC_geom = torch.tensor(self.BC_geom, dtype=torch.float32, requires_grad=True).to(device)
+
+        X,Y = import_data("data/cylinder.csv", None, None)
+        indices = X[:,0] == 1
+        self.init_data = X[indices]
+        self.init_data = torch.tensor(self.init_data, dtype=torch.float32, requires_grad=True).to(device)
+        self.init_target = Y[indices]
+        self.init_target = torch.tensor(self.init_target, dtype=torch.float32, requires_grad=False).to(device)
     
     def compute_loss(self, inputs, outputs, targets = None):
         # assert targets is None, "Targets should be None for no data training"
@@ -183,7 +206,10 @@ class Train_Loop_nodata(Train_Loop):
 
         ## TO DO : make it cleaner and integrated in the framework
         ## FOR NOW just use predefined boundary conditions
+        outputs = self.model(self.BC_geom)
         self.loss_obj.boundary_loss(self.BC_geom, outputs)
+        outputs = self.model(self.init_data)
+        self.loss_obj.initial_loss(self.init_data, outputs, self.init_target)
 
         self.loss_obj.get_total_loss()
 
