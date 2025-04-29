@@ -68,7 +68,7 @@ def evaluate_model(model, test_loader, device, max_batch_size=1024):
                     y_pred = model(x_chunk)
                     
                     # Calculate loss (only on the predicted part)
-                    loss = criterion(y_pred, y_chunk[:, model.input_length:])
+                    loss = criterion(y_pred, y_chunk[:, model.output_length:])
                     
                     batch_loss += loss.item() * (end_idx - start_idx)
                 
@@ -87,7 +87,7 @@ def evaluate_model(model, test_loader, device, max_batch_size=1024):
                 y_pred = model(x)
                 
                 # Calculate loss (only on the predicted part)
-                loss = criterion(y_pred, y[:, model.input_length:])
+                loss = criterion(y_pred, y)
                 
                 test_loss += loss.item() * x.size(0)
                 total_samples += x.size(0)
@@ -124,7 +124,7 @@ def plot_loss_history(history, save_dir):
     plt.savefig(os.path.join(save_dir, 'loss_history.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_transform_input=None):
+def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_transform_input=None, additional_name = ""):
     """
     Plot speed maps over time using the trained model.
     Parameters:
@@ -190,5 +190,5 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
     ani = FuncAnimation(fig, update, frames=len(t), interval=100, blit=False)
 
     # Save as GIF
-    ani.save(os.path.join(save_dir,'speed_over_time.gif'), writer='pillow', fps=15, dpi=100)
+    ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()

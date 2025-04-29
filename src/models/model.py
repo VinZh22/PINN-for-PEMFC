@@ -6,31 +6,51 @@ import numpy as np
 
 
 class PINN(nn.Module):
-    def __init__(self, layers_num, hard_constraint = None, activation=nn.Tanh, ):
+    def __init__(self, input_length, output_length, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+        """
+        Abstract class for PINN, NEED TO DECLARE a self.model in the child class
+        activation: activation function to be used in the hidden layers
+        """
+        assert input_length==3 or RFF # if there is no RFF, then the input is u,v,p
+        super(PINN, self).__init__()
+        self.input_length = input_length
+        self.output_length = output_length
+
+        self.hard_constraint = hard_constraint
+        self.RFF = RFF
+        self.register_buffer('kernel_rff', torch.normal(mean = 0., std = RFF_sigma, size = (input_length//2, 3)))
+        
+    def forward(self, x):
+        if self.RFF:
+            # Apply RFF transformation
+            x = torch.matmul(self.kernel_rff, x.T)
+            x_cos = torch.cos(x).T
+            x_sin = torch.sin(x).T
+
+            x = torch.cat((x_cos, x_sin), dim = 1)
+        
+        y = self.model(x)
+        # Apply the hard constraint if provided
+        if self.hard_constraint is not None:
+            y = self.hard_constraint(y)
+        return y
+
+class PINN_linear(PINN):
+    def __init__(self, layers_num, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
-        super(PINN, self).__init__()
+        super(PINN_linear, self).__init__(layers_num[0], layers_num[-1], RFF, RFF_sigma, hard_constraint, activation)
         self.layers_num = layers_num
-        
+
         layers = []
         for i in range(len(layers_num) - 1):
             layers.append(nn.Linear(layers_num[i], layers_num[i + 1]))
             nn.init.xavier_uniform_(layers[-1].weight)
             layers.append(activation())
         
-        self.hard_constraint = hard_constraint
-        
         self.model = nn.Sequential(*layers[:-1])  # Exclude the last activation function
-        
-
-    def forward(self, x):
-        y = self.model(x)
-        # Apply the hard constraint if provided
-        if self.hard_constraint is not None:
-            y = self.hard_constraint(y)
-        return y
 
 class PINN_time_windows(nn.Module):
     def __init__(self, layers_num, T_max, T_min = 0, num_windows = 10, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):

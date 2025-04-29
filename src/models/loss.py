@@ -12,7 +12,7 @@ def timer_decorator(func):
     return wrapper
 
 
-def navier_stokes(txy_col, output, nu = 0.01, non_dim = False):
+def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
     """Time-dependent Navier-Stokes PDE residual."""
     Re =  (3.204348e-01) * (1.304893e-01) / 0.01 # U * L / nu
 
@@ -51,6 +51,21 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False):
         momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - nu * (d2v_dx2 + d2v_dy2)
         u_out = du_dx*nu - p
         v_out = dv_dx
+
+    # Detach gradients if eval
+    if eval:
+        du = du.detach()
+        dv = dv.detach()
+        dp = dp.detach()
+        d2u_dx2 = d2u_dx2.detach()
+        d2u_dy2 = d2u_dy2.detach()
+        d2v_dx2 = d2v_dx2.detach()
+        d2v_dy2 = d2v_dy2.detach()
+        continuity = continuity.detach()
+        momentum_x = momentum_x.detach()
+        momentum_y = momentum_y.detach()
+        u_out = u_out.detach()
+        v_out = v_out.detach()
 
     return continuity, momentum_x, momentum_y, u_out, v_out
 
@@ -97,8 +112,8 @@ class Loss:
         self.loss_epoch_tmp.zero_()
         self.loss_total.zero_() 
 
-    def compute_pde_loss(self, txy_col, output, outflow_eq = True):
-        continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim)
+    def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False):
+        continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
         tmp = torch.mean(continuity**2) + torch.mean(momentum_x**2) + torch.mean(momentum_y**2) + outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2)
         return tmp.to(self.device)
 
