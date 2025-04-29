@@ -205,7 +205,7 @@ class Train_Loop_nodata(Train_Loop):
         ## TO DO along with compute_loss for BC
         x = torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
         y = torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
-        t = torch.arange(0, 15.).reshape(-1,1)
+        t = torch.arange(0, 150.).reshape(-1,1)
         X, Y, T = np.meshgrid(x, y, t)
         self.BC_geom = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
         if nondim_input is not None:
@@ -216,7 +216,7 @@ class Train_Loop_nodata(Train_Loop):
         if nondim_input is not None:
             indices = X[:,0] == nondim_input([1,0,0])[0] # get the indices of the points where t = 1
         else:
-            indices = X[:,0] == 1 # get the indices of the points where t = 1
+            indices = X[:,0] <= 3 # get the indices of the points where t = 1
         self.init_data = X[indices]
         self.init_data = torch.tensor(self.init_data, dtype=torch.float32, requires_grad=True).to(device)
         self.init_target = Y[indices]

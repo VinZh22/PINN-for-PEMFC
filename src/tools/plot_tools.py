@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from matplotlib.animation import FuncAnimation
+from src.data_process.load_data import import_data
+from tqdm import tqdm
 
 def evaluate_model(model, test_loader, device, max_batch_size=1024):
     """
@@ -192,3 +194,64 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
     # Save as GIF
     ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()
+
+def plot_difference_reference(model, device, data_path, save_dir, non_dim=True, forward_transform_input=None, forward_transform_output=None):
+    """
+    Plot for the model the MSE of the space with time, plot at each point in space the average MSE over time and 
+    """
+    
+    X,Y = import_data(data_path, nondim_input=forward_transform_input, nondim_output=forward_transform_output)
+
+    X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True).to(device)
+    Y_tensor = torch.tensor(Y, dtype=torch.float32, requires_grad=True).to(device)
+    with torch.no_grad():
+        uvp_pred = model(X_tensor)
+
+    # --- First the MSE over the space at each time step
+    mse_over_time = []
+    time_steps = np.unique(X[:,0]) # it also sorts the time steps
+    for ti in time_steps:
+        indices = X[:,0] == ti
+        pred = uvp_pred[indices]
+        target = Y_tensor[indices]
+        mse = nn.MSELoss()(pred, target)
+        mse_over_time.append(mse.item())
+    mse_over_time = np.array(mse_over_time)
+    # Plot the MSE over time
+    plt.figure(figsize=(10, 6))
+    plt.plot(time_steps, mse_over_time, label='MSE over time')
+    plt.title('MSE over time')
+    plt.xlabel('Time')
+    plt.ylabel('MSE')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.savefig(os.path.join(save_dir, 'mse_over_time.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    # --- Now the MSE over time at each point in space
+    mse_over_space = []
+    space = []
+    points = np.unique(X[:,1:], axis=0)
+    for point in tqdm(points):
+        indices = X[:,1:] == point
+        indices = indices[:,0] & indices[:,1]
+        pred = uvp_pred[indices]
+        target = Y_tensor[indices]
+        mse = nn.MSELoss()(pred, target)
+        mse_over_space.append(mse.item())
+        space.append(point)
+    mse_over_space = np.array(mse_over_space)
+    space = np.array(space)
+    # Plot the MSE over space
+    plt.figure(figsize=(10, 6))
+    plt.scatter(space[:,0], space[:,1], c=mse_over_space, cmap='jet')
+    plt.colorbar(label='MSE')
+    plt.title('MSE over space')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.grid(True, alpha=0.3)
+    plt.savefig(os.path.join(save_dir, 'mse_over_space.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+
+
