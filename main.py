@@ -52,6 +52,9 @@ def train_and_save_data(model, device, config, save_dir, epochs):
         additional_name="_intermediate_model"
     )
 
+    loss_history_train, loss_history_test = train_data.get_loss_history()
+    plot_tools.plot_loss_history({"train_loss": loss_history_train, "val_loss": loss_history_test}, save_dir=save_dir, additional_name="_intermediate_model")
+
     return intermediate_model
 
 def train_and_save_nodata(model, device, config, save_dir, epochs):
@@ -107,7 +110,7 @@ print(f"Using device: {device}")
 timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 save_dir = f'./results/{timestamp}'
 
-non_dim = False
+non_dim = True
 if not non_dim:
     forward_transform_input = None
     forward_transform_output = None
@@ -122,7 +125,7 @@ else:
 # PINN = model.PINN_time_windows([3] + [256] * 5 + [3], time_max, time_min, RFF = False, num_windows=5, hard_constraint=None, activation=nn.Tanh)
 PINN = model.PINN_linear([3] + [256] * 5 + [3], RFF = False, hard_constraint=None, activation=nn.Tanh)
 
-intermediate_model = train_and_save_data(
+final_model = train_and_save_data(
     model=PINN,
     device=device,
     config="./data/cylinder.csv",
@@ -130,15 +133,15 @@ intermediate_model = train_and_save_data(
     epochs=10000
 )
 
-print("Finished training the intermediate model. Gonna start refining using pde and equations")
+# print("Finished training the intermediate model. Gonna start refining using pde and equations")
 
-final_model = train_and_save_nodata(
-    model=intermediate_model,
-    device=device,
-    config=[-20, 30, -20, 20, 0, 1, 150, False, 150],
-    save_dir=save_dir,
-    epochs=1000
-)
+# final_model = train_and_save_nodata(
+#     model=intermediate_model,
+#     device=device,
+#     config=[-20, 30, -20, 20, 0, 1, 150, False, 150],
+#     save_dir=save_dir,
+#     epochs=1000
+# )
 
 print("Finished training the final model.")
 

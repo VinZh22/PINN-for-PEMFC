@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+import src.tools.util_func as util_func
+
 import time
 def timer_decorator(func):
     def wrapper(*args, **kwargs):
@@ -13,8 +15,11 @@ def timer_decorator(func):
 
 
 def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
-    """Time-dependent Navier-Stokes PDE residual."""
-    Re =  (3.204348e-01) * (1.304893e-01) / 0.01 # U * L / nu
+    """
+    Time-dependent Navier-Stokes PDE residual.
+    Lets suppose that nu = 0.01 is not changed (otherwise change util_func.py)
+    """
+    Re = util_func.get_Reynolds()
 
     # PDE Residual Loss
     txy_col.requires_grad_(True)

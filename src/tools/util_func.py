@@ -1,17 +1,20 @@
 import numpy as np
 
+x_mean = 3.088352e+00
+y_mean = -1.905240e-16	
+x_std =  1.051818e+01
+y_std = 8.089716e+00
+T_mean = 7.550000e+01
+T_std = 4.330032e+01
+
+nu = 0.01
+
 def forward_transform_input(X):
     """
     Give this function to the train function and also when plotting to format the input into a normalized format
     """
 
     # data from the cylinder.csv file, get it separately, no need to compute if everytime
-    x_mean = 9.113882e-01
-    y_mean = 3.184817e-05	
-    x_std =  3.204348e-01
-    y_std = 1.304893e-01
-    T_mean = 7.550000e+01
-    T_std = 4.330032e+01
     t,x,y = X[0], X[1], X[2]
     # Non-dimensionalize velocity and pressure
     x = (x - x_mean) / x_std
@@ -27,18 +30,13 @@ def forward_transform_output(y):
     """
 
     # data from the cylinder.csv file, get it separately, no need to compute if everytime
-    U_mean = 9.113882e-01
-    V_mean = 3.184817e-05	
-    U_std =  3.204348e-01
-    V_std = 1.304893e-01
-    P_mean = -3.673176e-02
-    P_std = 1.302342e-01
+    
 
     u,v,p = y[0], y[1], y[2]
     # Non-dimensionalize velocity and pressure
-    u = (u - U_mean) / U_std
-    v = (v - V_mean) / V_std
-    p = (p - P_mean) / P_std
+    u = u * T_std/ x_std
+    v = v * T_std/ y_std
+    p = p * T_std**2 / (x_std**2 + y_std**2) ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
     return np.array([u, v, p])
 forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
 
@@ -51,3 +49,10 @@ def get_non_dim_transform():
         A tuple containing the non-dimensionalization functions for input and output data.
     """
     return forward_transform_input, forward_transform_output
+
+def get_Reynolds():
+    """
+    Let's not favour one axis over the other, L = sqrt(X^2 + Y^2)
+    """
+    return (x_std**2 + y_std**2) / (nu * T_std)
+

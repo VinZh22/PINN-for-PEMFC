@@ -101,7 +101,7 @@ def evaluate_model(model, test_loader, device, max_batch_size=1024):
     return test_loss
 
 
-def plot_loss_history(history, save_dir):
+def plot_loss_history(history, save_dir, additional_name = ""):
     """
     Plot training and validation loss history.
     
@@ -123,7 +123,7 @@ def plot_loss_history(history, save_dir):
     plt.yscale('log')
     
     # Save figure
-    plt.savefig(os.path.join(save_dir, 'loss_history.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(save_dir, 'loss_history' + additional_name + '.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_transform_input=None, additional_name = ""):
