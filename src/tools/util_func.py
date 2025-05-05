@@ -5,7 +5,9 @@ y_mean = -1.905240e-16
 x_std =  1.051818e+01
 y_std = 8.089716e+00
 T_mean = 7.550000e+01
-T_std = 4.330032e+01
+
+U_std = 3.204348e-01
+T_std = x_std / U_std
 
 nu = 0.01
 
@@ -34,9 +36,9 @@ def forward_transform_output(y):
 
     u,v,p = y[0], y[1], y[2]
     # Non-dimensionalize velocity and pressure
-    u = u * T_std/ x_std
-    v = v * T_std/ y_std
-    p = p * T_std**2 / (x_std**2 + y_std**2) ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
+    u = u / U_std
+    v = v / U_std
+    p = p / U_std**2 ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
     return np.array([u, v, p])
 forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
 
@@ -52,7 +54,7 @@ def get_non_dim_transform():
 
 def get_Reynolds():
     """
-    Let's not favour one axis over the other, L = sqrt(X^2 + Y^2)
+    Re = U * L / nu
     """
-    return (x_std**2 + y_std**2) / (nu * T_std)
+    return U_std * x_std / nu
 

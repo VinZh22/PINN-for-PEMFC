@@ -123,7 +123,7 @@ else:
 
 
 # PINN = model.PINN_time_windows([3] + [256] * 5 + [3], time_max, time_min, RFF = False, num_windows=5, hard_constraint=None, activation=nn.Tanh)
-PINN = model.PINN_linear([3] + [256] * 5 + [3], RFF = False, hard_constraint=None, activation=nn.Tanh)
+PINN = model.PINN_linear([256] + [256] * 5 + [3], RFF = True, hard_constraint=None, activation=nn.Tanh)
 
 final_model = train_and_save_data(
     model=PINN,

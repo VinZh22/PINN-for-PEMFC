@@ -114,7 +114,7 @@ def plot_loss_history(history, save_dir, additional_name = ""):
     """
     plt.figure(figsize=(10, 6))
     plt.plot(history['train_loss'], label='Train Loss')
-    plt.plot(history['val_loss'], label='Validation Loss')
+    plt.plot(history['val_loss'][:,0], history['val_loss'][:,1], label='Validation Loss')
     plt.title('Loss History')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')

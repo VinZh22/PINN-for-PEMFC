@@ -116,12 +116,20 @@ class Train_Loop(ABC):
                 self.update_progress_bar(progress_bar, loss_test, num_batches)
                 self.loss_history_test.append((epoch,float(loss_test)))
 
+        self.loss_history_test = np.array(self.loss_history_test)
+        self.loss_history_train = np.array(self.loss_history_train)
         return self.model
 
     def get_loss_history(self):
         return self.loss_history_train, self.loss_history_test
     
     def save_model(self, path):
+        """
+        Save the model to a file.
+        """
+        torch.save(self.model.model, os.path.join(path,'model_weights.pth'))
+    
+    def save_model_weights(self, path):
         """
         Save the model to a file.
         """
