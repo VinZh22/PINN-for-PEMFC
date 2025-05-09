@@ -5,8 +5,11 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.animation import FuncAnimation
 import os
+import pdb
+
+from matplotlib.animation import FuncAnimation
+
 import src.data_process.load_data as load_data
 import src.tools.plot_tools as plot_tools
 import src.tools.util_func as util_func
@@ -22,10 +25,12 @@ def train_and_save_data(model, device, config, save_dir, epochs):
 
     intermediate_model = train_data.train_pinn(
         config=config,
+        log_path=save_dir,
         train_prop=0.01,
         nu=0.01,
         epochs=epochs,
-        adapting_weight=True
+        adapting_weight=True,
+        additional_name="_intermediate_model",
     )
 
     os.makedirs(save_dir, exist_ok=True)
@@ -68,7 +73,8 @@ def train_and_save_nodata(model, device, config, save_dir, epochs):
 
     final_model = train_obj.train_pinn(
         config=config,
-        train_prop=0.6,
+        log_path=save_dir,
+        train_prop=0.4,
         nu=0.01,
         epochs=epochs,
         adapting_weight=True
@@ -108,9 +114,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-save_dir = f'./results/{timestamp}'
+save_dir = f'./results/{timestamp}_dimension'
 
-non_dim = True
+non_dim = False
 if not non_dim:
     forward_transform_input = None
     forward_transform_output = None
@@ -123,25 +129,25 @@ else:
 
 
 # PINN = model.PINN_time_windows([3] + [256] * 5 + [3], time_max, time_min, RFF = False, num_windows=5, hard_constraint=None, activation=nn.Tanh)
-PINN = model.PINN_linear([256] + [256] * 5 + [3], RFF = True, hard_constraint=None, activation=nn.Tanh)
+PINN = model.PINN_mod_MLP([256] + [256] * 4 + [3], RFF = True, hard_constraint=None, activation=nn.Tanh, device = device)
 
-final_model = train_and_save_data(
+intermediate_model = train_and_save_data(
     model=PINN,
     device=device,
     config="./data/cylinder.csv",
     save_dir=save_dir,
-    epochs=10000
+    epochs=5000
 )
 
-# print("Finished training the intermediate model. Gonna start refining using pde and equations")
+print("Finished training the intermediate model. Gonna start refining using pde and equations")
 
-# final_model = train_and_save_nodata(
-#     model=intermediate_model,
-#     device=device,
-#     config=[-20, 30, -20, 20, 0, 1, 150, False, 150],
-#     save_dir=save_dir,
-#     epochs=1000
-# )
+final_model = train_and_save_nodata(
+    model=intermediate_model,
+    device=device,
+    config=[-20, 30, -20, 20, 0, 1, 150, False, 50],
+    save_dir=save_dir,
+    epochs=2000
+)
 
 print("Finished training the final model.")
 

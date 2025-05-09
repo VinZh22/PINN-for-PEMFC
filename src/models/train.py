@@ -36,7 +36,7 @@ class Train_Loop(ABC):
         self.refresh_bar = refresh_bar
         self.nondim_input = nondim_input
         self.nondim_output = nondim_output
-        self.batch_size = 4048  # Define batch size
+        self.batch_size = 8000  # Define batch size
 
         self.lambda_data = lambda_list[0]
         self.lambda_pde = lambda_list[1]
@@ -69,7 +69,7 @@ class Train_Loop(ABC):
 
         return txy_col, output_data, xyt_col_test, output_data_test
 
-    def train_pinn(self, config, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True):
+    def train_pinn(self, config, log_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
 
@@ -90,9 +90,13 @@ class Train_Loop(ABC):
         
         optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
         progress_bar = tqdm(range(epochs), desc="Training Progress", unit="epoch")
+
+        loss_log: list[dict[str, float]] = []
+
         for epoch in progress_bar:
             optimizer.zero_grad()
-            self.loss_obj.new_epoch(self.lambda_data, self.lambda_pde, 0., 0.)
+            self.add_log_entry(loss_log, epoch, num_batches)
+            self.loss_obj.new_epoch(self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial)
             tmp_loader = batch_data(txy_col, output_data, batch_size, shuffle=False)
             for inputs, targets in tmp_loader:
                 self.loss_obj.new_batch()
@@ -115,7 +119,7 @@ class Train_Loop(ABC):
                 loss_test = self.evaluate(test_loader)  # Test loss computation using known data
                 self.update_progress_bar(progress_bar, loss_test, num_batches)
                 self.loss_history_test.append((epoch,float(loss_test)))
-
+                self.save_log(log_path, loss_log, additional_name)
         self.loss_history_test = np.array(self.loss_history_test)
         self.loss_history_train = np.array(self.loss_history_train)
         return self.model
@@ -134,6 +138,30 @@ class Train_Loop(ABC):
         Save the model to a file.
         """
         torch.save(self.model.state_dict(), os.path.join(path,'model_weights.pth'))
+
+    def add_log_entry(self, log, epoch, num_batches):
+        """
+        Add an entry to the log.
+        """
+        log.append({
+            'epoch': epoch,
+            'loss_pde': float(self.loss_obj.get_loss_pde())/num_batches,
+            'loss_data': float(self.loss_obj.get_loss_data())/num_batches,
+            'loss_boundary': float(self.loss_obj.get_loss_boundary())/num_batches,
+            'loss_initial': float(self.loss_obj.get_loss_initial())/num_batches,
+            'lambda_pde': float(self.lambda_pde),
+            'lambda_data': float(self.lambda_data),
+            'lambda_boundary': float(self.lambda_boundary),
+            'lambda_initial': float(self.lambda_initial),
+        })
+
+    def save_log(self, path, log, additional_name = ""):
+        """
+        Save the losses to a file.
+        """
+        os.makedirs(path, exist_ok=True)
+        pd.DataFrame(log).to_csv(os.path.join(path, "log" + additional_name + ".csv"), index=False)
+
 
     @abstractmethod
     def update_progress_bar(self, progress_bar, loss_test, num_batches):
@@ -175,7 +203,7 @@ class Train_Loop_data(Train_Loop):
         - loss: The computed loss.
         """
         self.loss_obj.data_loss(outputs, targets)
-        self.loss_obj.pde_loss(inputs, outputs)
+        self.loss_obj.pde_loss(inputs, outputs, outflow_eq=False)
         self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):
@@ -211,8 +239,9 @@ class Train_Loop_nodata(Train_Loop):
                          nu=nu, alpha=alpha, nondim_input=nondim_input, nondim_output=nondim_output,)
         
         ## TO DO along with compute_loss for BC
-        x = torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
-        y = torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        radius = 0.99
+        x = radius*torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        y = radius*torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
         t = torch.arange(0, 150.).reshape(-1,1)
         X, Y, T = np.meshgrid(x, y, t)
         self.BC_geom = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
@@ -232,7 +261,7 @@ class Train_Loop_nodata(Train_Loop):
     
     def compute_loss(self, inputs, outputs, targets = None):
         # assert targets is None, "Targets should be None for no data training"
-        self.loss_obj.pde_loss(inputs, outputs)
+        self.loss_obj.pde_loss(inputs, outputs, outflow_eq=False)
 
         ## TO DO : make it cleaner and integrated in the framework
         ## FOR NOW just use predefined boundary conditions
@@ -249,11 +278,13 @@ class Train_Loop_nodata(Train_Loop):
         Don't give anything to output_test, it's just to comply with the interface
         """
         loss_test = 0.
+        size_test = 0
         for inputs, targets in test_loader:
             inputs = inputs.to(self.device)
             pred_test = self.model(inputs) # no torch.no_grad() because we need to compute the loss
-            loss_test += self.loss_obj.compute_pde_loss(inputs, pred_test, eval=True) * inputs.shape[0]
-        loss_test /= len(test_loader)
+            loss_test += self.loss_obj.compute_pde_loss(inputs, pred_test, eval=True, outflow_eq=False) * inputs.shape[0]
+            size_test += inputs.shape[0]
+        loss_test /= size_test
         return loss_test
     
     def import_data(self, config, nondim_input=None, nondim_output=None):

@@ -3,10 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import pdb
 
 
 class PINN(nn.Module):
-    def __init__(self, input_length, output_length, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+    def __init__(self, input_length, output_length, device, RFF = False, RFF_sigma = 1., hard_constraint = None):
         """
         Abstract class for PINN, NEED TO DECLARE a self.model in the child class
         activation: activation function to be used in the hidden layers
@@ -15,6 +16,7 @@ class PINN(nn.Module):
         super(PINN, self).__init__()
         self.input_length = input_length
         self.output_length = output_length
+        self.device = device
 
         self.hard_constraint = hard_constraint
         self.RFF = RFF
@@ -36,12 +38,12 @@ class PINN(nn.Module):
         return y
 
 class PINN_linear(PINN):
-    def __init__(self, layers_num, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+    def __init__(self, layers_num, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
-        super(PINN_linear, self).__init__(layers_num[0], layers_num[-1], RFF, RFF_sigma, hard_constraint, activation)
+        super(PINN_linear, self).__init__(layers_num[0], layers_num[-1], device, RFF, RFF_sigma, hard_constraint)
         self.layers_num = layers_num
 
         layers = []
@@ -52,14 +54,51 @@ class PINN_linear(PINN):
         
         self.model = nn.Sequential(*layers[:-1])  # Exclude the last activation function
 
+class PINN_mod_MLP(PINN):
+    def __init__(self, layers_num, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+        """
+        layers: list of integers representing the number of neurons in each layer
+        activation: activation function to be used in the hidden layers
+        """
+        super(PINN_mod_MLP, self).__init__(layers_num[0], layers_num[-1], device, RFF, RFF_sigma, hard_constraint)
+        self.layers_num = layers_num
+
+        self.model = ModifiedMLP(layers_num=layers_num, device = device, activation=activation)
+class ModifiedMLP(nn.Module):
+    def __init__(self, layers_num, device, activation = nn.Tanh):
+        super().__init__()
+        self.device = device
+
+        self.U = nn.Sequential(nn.Linear(layers_num[0], layers_num[1]), activation()).to(device)
+        self.V = nn.Sequential(nn.Linear(layers_num[0], layers_num[1]), activation()).to(device)
+        nn.init.xavier_uniform_(self.U[0].weight)
+        nn.init.xavier_uniform_(self.V[0].weight)
+
+        self.layers = []
+        for i in range(1, len(layers_num) - 1):
+            self.layers.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
+            nn.init.xavier_uniform_(self.layers[-1][0].weight)
+        self.layers.append(nn.Linear(layers_num[-2], layers_num[-1]).to(device))
+        nn.init.xavier_uniform_(self.layers[-1].weight)
+        
+    def forward(self, x):
+        U = self.U(x)
+        V = self.V(x)
+        for layer in self.layers[:-1]:
+            x = layer(x)
+            x = (1-x)*U + x*V
+        
+        x = self.layers[-1](x)
+        return x
+
 class PINN_import(PINN):
-    def __init__(self, model_path, input_len, output_len, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+    def __init__(self, model_path, input_len, output_len, RFF = False, RFF_sigma = 1., hard_constraint = None,):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
 
-        super(PINN_import, self).__init__(input_len, output_len, RFF, RFF_sigma, hard_constraint, activation)
+        super(PINN_import, self).__init__(input_len, output_len, RFF, RFF_sigma, hard_constraint)
         self.load_model(model_path)
 
     def load_model(self, model_path):
@@ -69,53 +108,103 @@ class PINN_import(PINN):
         self.model = torch.load(model_path)
 
 class PINN_LORA(PINN):
-    def __init__(self, rank, grid_size, output_len = 3, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh):
+    def __init__(self, rank, features, pos_enc, mlp = 'modified_mlp', output_len = 3, RFF = False, RFF_sigma = 1., hard_constraint = None, ):
         """
         We have input_len = 3 as fixed, no RFF
+        We don't exploit the collocation points trick, nor the forward AD, it's very slow.
         """
         assert RFF == False, "RFF is not supported in LORA"
-        super(PINN_LORA, self).__init__(3, output_len, RFF, RFF_sigma, hard_constraint, activation)
-        self.rank = rank
-        self.gridSize = grid_size
+        super(PINN_LORA, self).__init__(3, output_len, RFF, RFF_sigma, hard_constraint)
 
-        self.model = LORA(rank, output_len, grid_size)
-
+        self.model = LORA(features, rank, output_len, pos_enc, mlp)
 class LORA(nn.Module):
-    def __init__(self, rank=1, output_length=3, grid_size=100):
-        super(LORA, self).__init__()
-        self.rank = rank
-        self.input_length = 3
-        self.output_length = output_length
-        self.gridSize = grid_size
-
-        self.vecMode = [self.input_length - 1 - i for i in range(self.input_length)]  # The order of the coordinates
-
-        # Initialize low-rank matrices
-        self.line_vec = self.init_one_svd(self.rank, self.gridSize, 0.2)
-        self.basis_mat = torch.nn.Linear(self.rank, self.output_length, bias=False)
+    def __init__(self, features, r, out_dim, pos_enc, mlp):
+        super().__init__()
+        self.features = features
+        self.r = r
+        self.out_dim = out_dim
+        self.pos_enc = pos_enc
+        self.mlp_type = mlp
+        
+        if mlp == 'mlp':
+            self.t_mlp = self._make_mlp()
+            self.x_mlp = self._make_mlp()
+            self.y_mlp = self._make_mlp()
+        elif mlp == 'modified_mlp':
+            self.t_mlp = self._make_modified_mlp()
+            self.x_mlp = self._make_modified_mlp()
+            self.y_mlp = self._make_modified_mlp()
+        
+    def _make_mlp(self):
+        layers = []
+        for fs in self.features[:-1]:
+            layers.append(nn.LazyLinear(fs))
+            layers.append(nn.Tanh())
+        layers.append(nn.LazyLinear(self.r * self.out_dim))
+        return nn.Sequential(*layers)
     
-    def init_one_svd(self, n_component, gridSize, scale):
-        line_coef = []
-        for i in range(self.input_length):
-            line_coef.append(
-                torch.nn.Parameter(scale * torch.randn((1, n_component, gridSize, 1))))
-        return torch.nn.ParameterList(line_coef)
+    def _make_modified_mlp(self):
+        class ModifiedMLPBlock(nn.Module):
+            def __init__(self, in_features, out_features):
+                super().__init__()
+                self.U = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
+                self.V = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
+                self.H = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
+                self.Z = nn.Sequential(nn.Linear(out_features, out_features), nn.Tanh())
+                
+            def forward(self, x):
+                U = self.U(x)
+                V = self.V(x)
+                H = self.H(x)
+                Z = self.Z(H)
+                return (1 - Z) * U + Z * V
+        
+        layers = []
+        for fs in self.features[:-1]:
+            layers.append(ModifiedMLPBlock(None, fs))
+        layers.append(nn.LazyLinear(self.r * self.out_dim))
+        return nn.Sequential(*layers)
+    
+    def forward(self, input):
+        t,x,y = input[:, 0], input[:, 1], input[:, 2]
+        if self.pos_enc != 0:
+            # positional encoding for spatial coordinates (x and y)
+            freq = torch.arange(1, self.pos_enc + 1, 1, device=x.device).unsqueeze(0)
+            x = torch.cat([torch.ones(x.shape[0], 1), 
+                          torch.sin(x @ freq), 
+                          torch.cos(x @ freq)], dim=1)
+            y = torch.cat([torch.ones(y.shape[0], 1), 
+                          torch.sin(y @ freq), 
+                          torch.cos(y @ freq)], dim=1)
+            
+        # Process each input
+        t_out = self.t_mlp(t.unsqueeze(1)).T
+        x_out = self.x_mlp(x.unsqueeze(1)).T
+        y_out = self.y_mlp(y.unsqueeze(1)).T
 
+            
+        outputs = [t_out, x_out, y_out]
+        pred = []
+        
+        for i in range(self.out_dim):
+            # ft, fx -> ftx
+            tx_i = torch.einsum('ft,fx->ftx', 
+                              outputs[0][self.r*i:self.r*(i+1)], 
+                              outputs[1][self.r*i:self.r*(i+1)])
+            # ftx, fy -> txy
+            pred_i = torch.einsum('ftx,fy->txy', 
+                                tx_i, 
+                                outputs[2][self.r*i:self.r*(i+1)])
+            ## Shape (batch_size, batch_size, batch_size), indice (t,x,y)
+            # Let's ignore the benefits of SPINN collocation points and take the initial points
+            n = pred_i.shape[0]
+            idx = torch.arange(n, device = pred_i.device)
+            pred_i = pred_i[idx, idx, idx]
+            pred.append(pred_i)
 
-    def forward(self, xyz_sampled):
-        coordinate_line = torch.stack(
-            (xyz_sampled[..., self.vecMode[0]], xyz_sampled[..., self.vecMode[1]], xyz_sampled[..., self.vecMode[2]]))
-        coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
-
-
-        line_coef_point = F.grid_sample(self.line_vec[0], coordinate_line[[0]],
-                                            align_corners=True).view(-1, *xyz_sampled.shape[:1])
-        line_coef_point = line_coef_point * F.grid_sample(self.line_vec[1], coordinate_line[[1]],
-                                                          align_corners=True).view(-1, *xyz_sampled.shape[:1])
-        line_coef_point = line_coef_point * F.grid_sample(self.line_vec[2], coordinate_line[[2]],
-                                                          align_corners=True).view(-1, *xyz_sampled.shape[:1])
-
-        return self.basis_mat(line_coef_point.T)
+        # pdb.set_trace()
+        pred = torch.stack(pred, dim = 0).T
+        return pred[0] if len(pred) == 1 else pred
 
 
 class PINN_time_windows(nn.Module):

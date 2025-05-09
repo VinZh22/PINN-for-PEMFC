@@ -4,6 +4,7 @@ x_mean = 3.088352e+00
 y_mean = -1.905240e-16	
 x_std =  1.051818e+01
 y_std = 8.089716e+00
+## x_std = y_std approximately, so let's just use x_std
 T_mean = 7.550000e+01
 
 U_std = 3.204348e-01
@@ -20,7 +21,7 @@ def forward_transform_input(X):
     t,x,y = X[0], X[1], X[2]
     # Non-dimensionalize velocity and pressure
     x = (x - x_mean) / x_std
-    y = (y - y_mean) / y_std
+    y = (y - y_mean) / x_std
     t = (t - T_mean) / T_std
 
     return np.array([t, x, y])

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import pdb
 
 import src.tools.util_func as util_func
 
@@ -26,7 +27,7 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
     u, v, p = output[:, 0], output[:, 1], output[:, 2]
 
     # First derivatives
-    du = torch.autograd.grad(u, txy_col, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+    du= torch.autograd.grad(u, txy_col, grad_outputs=torch.ones_like(u), create_graph=True)[0]
     du_dt, du_dx, du_dy = du[:, 0], du[:, 1], du[:, 2]
 
     dv = torch.autograd.grad(v, txy_col, grad_outputs=torch.ones_like(v), create_graph=True)[0]
@@ -74,7 +75,6 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
 
     return continuity, momentum_x, momentum_y, u_out, v_out
 
-
 class Loss:
     ### An object that we're gonna reset at each epoch
     def __init__(self, model, device, nu = 0.01, alpha = 0.9, non_dim = True, need_loss = [True]*4, lambda_list = [1.]*4):
@@ -83,7 +83,7 @@ class Loss:
         self.model = model
         self.device = device
         self.alpha = alpha
-
+        self.i = 0
         self.lambda_data = lambda_list[0]
         self.lambda_pde = lambda_list[1]
         self.lambda_boundary = lambda_list[2]
@@ -117,7 +117,7 @@ class Loss:
         self.loss_epoch_tmp.zero_()
         self.loss_total.zero_() 
 
-    def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False):
+    def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False,):
         continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
         tmp = torch.mean(continuity**2) + torch.mean(momentum_x**2) + torch.mean(momentum_y**2) + outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2)
         return tmp.to(self.device)
@@ -281,4 +281,7 @@ class Loss:
             lambda_initial_hat = sum_loss_grad / norm_loss_initial
             self.lambda_initial = self.alpha * self.lambda_initial + (1 - self.alpha) * lambda_initial_hat
 
+        return [self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial]
+
+    def get_lambdas(self):
         return [self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial]

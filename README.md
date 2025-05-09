@@ -1,6 +1,6 @@
 # Project Name
 
-A brief description of your project and its purpose.
+Project repo for PINN in the case of PEMFC.
 
 ## Table of Contents
 
@@ -9,7 +9,6 @@ A brief description of your project and its purpose.
 - [Features](#features)
 - [Contributing](#contributing)
 - [License](#license)
-- [Acknowledgments](#acknowledgments)
 
 ## Installation
 
@@ -17,7 +16,7 @@ Step-by-step instructions on how to install and set up your project.
 
 ```bash
 # Example
-git clone https://github.com/yourusername/yourproject.git
+git clone https://gitlab.binets.fr/vincent.zhou/pinn_custom.git
 cd yourproject
 pip install -r requirements.txt
 ```
@@ -50,10 +49,3 @@ Contributions are welcome! Please follow these steps:
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
-## Acknowledgments
-
-- Inspiration
-- References
-- Contributors
-- Special thanks
