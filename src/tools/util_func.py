@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 x_mean = 3.088352e+00
 y_mean = -1.905240e-16	
@@ -58,4 +59,18 @@ def get_Reynolds():
     Re = U * L / nu
     """
     return U_std * x_std / nu
+
+
+def save_args(args, save_dir):
+    """
+    Save the arguments to a file.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    with open(os.path.join(save_dir, 'args.txt'), 'w') as f:
+        for key, value in vars(args).items():
+            f.write(f"{key}: {value}\n")
+
+
+
+
 
