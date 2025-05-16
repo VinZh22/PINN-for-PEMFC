@@ -80,6 +80,7 @@ class ModifiedMLP(nn.Module):
             nn.init.xavier_uniform_(self.layers[-1][0].weight)
         self.layers.append(nn.Linear(layers_num[-2], layers_num[-1]).to(device))
         nn.init.xavier_uniform_(self.layers[-1].weight)
+        self.layers = nn.ModuleList(self.layers)
         
     def forward(self, x):
         U = self.U(x)

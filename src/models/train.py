@@ -16,6 +16,7 @@ from time import time
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
 from src.tools.plot_tools import evaluate_model
+from torch.optim.lr_scheduler import ExponentialLR
 
 import pdb
 
@@ -25,7 +26,7 @@ class Train_Loop(ABC):
     Abstract class for training loops.
     """
 
-    def __init__(self, model, device, need_loss, lambda_list, nu, alpha, nondim_input = None, nondim_output = None,refresh_bar = 200):
+    def __init__(self, model, device, need_loss, lambda_list, nu, alpha, nondim_input = None, nondim_output = None, refresh_bar = 500, log_interval = 50):
 
 
         self.model = model
@@ -34,6 +35,7 @@ class Train_Loop(ABC):
         self.nu = nu
         self.alpha = alpha
         self.refresh_bar = refresh_bar
+        self.log_interval = log_interval
         self.nondim_input = nondim_input
         self.nondim_output = nondim_output
         self.batch_size = 8000  # Define batch size
@@ -46,6 +48,8 @@ class Train_Loop(ABC):
         self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list)
         self.loss_history_train = []
         self.loss_history_test = []
+        
+        self.time_to_complete = f"Total time: {0.:.2f}s | Avg speed: {0.:.2f} it/s"
     
     def set_data(self, config, train_prop):
         """
@@ -69,7 +73,7 @@ class Train_Loop(ABC):
 
         return txy_col, output_data, xyt_col_test, output_data_test
 
-    def train_pinn(self, config, log_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, additional_name = ""):
+    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
 
@@ -88,14 +92,21 @@ class Train_Loop(ABC):
         num_batches = txy_col.size(0) // batch_size + (txy_col.size(0) % batch_size != 0)
         print("num_batches: ", num_batches, "batch_size: ", batch_size)
         
+        ## cte for optim and scheduler (not hyper parameters for now)
+        lr = 1e-3
+        decay = 0.1
+        decay_steps = 2000
+
         optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+        scheduler = ExponentialLR(optimizer, gamma=(1 - decay/decay_steps))
         progress_bar = tqdm(range(epochs), desc="Training Progress", unit="epoch")
 
         loss_log: list[dict[str, float]] = []
 
         for epoch in progress_bar:
             optimizer.zero_grad()
-            self.add_log_entry(loss_log, epoch, num_batches)
+            if epoch % self.log_interval == 0 or epoch == epochs - 1:
+                self.add_log_entry(loss_log, epoch, num_batches)
             self.loss_obj.new_epoch(self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial)
             tmp_loader = batch_data(txy_col, output_data, batch_size, shuffle=False)
             for inputs, targets in tmp_loader:
@@ -112,26 +123,36 @@ class Train_Loop(ABC):
                         self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial = self.loss_obj.update_lambda()
                 self.loss_obj.backward(retain = False)
                 optimizer.step()
-
+                scheduler.step()
+            if self.lambda_data == 0.:
+                # pdb.set_trace()
+                pass
             self.loss_history_train.append(self.loss_obj.get_loss_pde().item() / num_batches)
             if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                 test_loader = batch_data(xyt_col_test, output_data_test, batch_size, shuffle=False)
                 loss_test = self.evaluate(test_loader)  # Test loss computation using known data
                 self.update_progress_bar(progress_bar, loss_test, num_batches)
                 self.loss_history_test.append((epoch,float(loss_test)))
-                self.save_log(log_path, loss_log, additional_name)
+                self.save_log(save_path, loss_log, additional_name)
+        
+
         self.loss_history_test = np.array(self.loss_history_test)
         self.loss_history_train = np.array(self.loss_history_train)
+
+        self.time_to_complete = f"Total time: {progress_bar.format_dict["elapsed"]:.2f}s | Avg speed: {epochs/progress_bar.format_dict["elapsed"]:.2f} it/s"
+        self.save_log(save_path, loss_log, additional_name)
+        self.save_time_complete(save_path, additional_name)
+
         return self.model
 
     def get_loss_history(self):
         return self.loss_history_train, self.loss_history_test
     
-    def save_model(self, path):
+    def save_model(self, path, additional_name = ""):
         """
         Save the model to a file.
         """
-        torch.save(self.model.model, os.path.join(path,'model_weights.pth'))
+        torch.save(self.model.model, os.path.join(path,'model' + additional_name + '.pth'))
     
     def save_model_weights(self, path):
         """
@@ -162,6 +183,33 @@ class Train_Loop(ABC):
         os.makedirs(path, exist_ok=True)
         pd.DataFrame(log).to_csv(os.path.join(path, "log" + additional_name + ".csv"), index=False)
 
+    def save_time_complete(self, path, additional_name = ""):
+        """
+        Save the time to complete the training.
+        """
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, 'time_complete'+ additional_name+'.txt'), 'w') as f:
+            f.write(self.time_to_complete)
+    
+    def set_condition_data(self):
+        radius = 0.99
+        x = radius*torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        y = radius*torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
+        t = torch.arange(0, 150.).reshape(-1,1)
+        X, Y, T = np.meshgrid(x, y, t)
+        self.BC_geom = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
+        if self.nondim_input is not None:
+            self.BC_geom = self.nondim_input(self.BC_geom)
+        self.BC_geom = torch.tensor(self.BC_geom, dtype=torch.float32, requires_grad=True).to(self.device)
+
+        x = -20. * torch.ones((50,1))
+        y = torch.linspace(-20, 20, 50).reshape(-1,1)
+        t = torch.arange(0, 150.).reshape(-1,1)
+        X, Y, T = np.meshgrid(x, y, t)
+        self.BC_geom2 = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
+        if self.nondim_input is not None:
+            self.BC_geom2 = self.nondim_input(self.BC_geom2)
+        self.BC_geom2 = torch.tensor(self.BC_geom2, dtype=torch.float32, requires_grad=True).to(self.device)
 
     @abstractmethod
     def update_progress_bar(self, progress_bar, loss_test, num_batches):
@@ -185,9 +233,9 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model, device, nondim_input = None, nondim_output = None, nu=0.01, alpha=0.9):
+    def __init__(self, model, device, nondim_input = None, nondim_output = None, nu=0.01, alpha=0.9, refresh_bar=500, log_interval=50):
         super().__init__(model, device,
-                         [True, True, False, False], [1., 1., 0., 0.],
+                         [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval,
                          nu=nu, alpha=alpha, nondim_input=nondim_input, nondim_output=nondim_output,)
 
     def compute_loss(self, inputs, outputs, targets):
@@ -239,15 +287,7 @@ class Train_Loop_nodata(Train_Loop):
                          nu=nu, alpha=alpha, nondim_input=nondim_input, nondim_output=nondim_output,)
         
         ## TO DO along with compute_loss for BC
-        radius = 0.99
-        x = radius*torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
-        y = radius*torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
-        t = torch.arange(0, 150.).reshape(-1,1)
-        X, Y, T = np.meshgrid(x, y, t)
-        self.BC_geom = np.vstack((T.flatten(), X.flatten(), Y.flatten())).T
-        if nondim_input is not None:
-            self.BC_geom = nondim_input(self.BC_geom)
-        self.BC_geom = torch.tensor(self.BC_geom, dtype=torch.float32, requires_grad=True).to(device)
+        self.set_condition_data()
         
         X,Y = import_data(init_path, nondim_input, nondim_output)
         if nondim_input is not None:
@@ -265,8 +305,13 @@ class Train_Loop_nodata(Train_Loop):
 
         ## TO DO : make it cleaner and integrated in the framework
         ## FOR NOW just use predefined boundary conditions
-        outputs = self.model(self.BC_geom)
-        self.loss_obj.boundary_loss(self.BC_geom, outputs)
+        outputs_circle = self.model(self.BC_geom)
+        circle_bc = torch.zeros_like(outputs_circle).to(self.device)
+        outputs_line = self.model(self.BC_geom2)
+        line_bc = torch.ones_like(outputs_line).to(self.device)
+        outputs = torch.cat((outputs_circle, outputs_line), dim=0)
+        boundary = torch.cat((circle_bc, line_bc), dim=0)
+        self.loss_obj.boundary_loss(outputs, boundary)
         outputs = self.model(self.init_data)
         self.loss_obj.initial_loss(self.init_data, outputs, self.init_target)
 

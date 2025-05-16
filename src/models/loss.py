@@ -20,6 +20,7 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
     Time-dependent Navier-Stokes PDE residual.
     Lets suppose that nu = 0.01 is not changed (otherwise change util_func.py)
     """
+
     Re = util_func.get_Reynolds()
 
     # PDE Residual Loss
@@ -58,6 +59,10 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
         u_out = du_dx*nu - p
         v_out = dv_dx
 
+    ## TEST de gradient-enhanced
+    d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
+    d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
+
     # Detach gradients if eval
     if eval:
         du = du.detach()
@@ -70,10 +75,13 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
         continuity = continuity.detach()
         momentum_x = momentum_x.detach()
         momentum_y = momentum_y.detach()
+        d_momentum_x_dt = d_momentum_x_dt.detach()
+        d_momentum_x_dx = d_momentum_x_dx.detach()
+        d_momentum_x_dy = d_momentum_x_dy.detach()
         u_out = u_out.detach()
         v_out = v_out.detach()
 
-    return continuity, momentum_x, momentum_y, u_out, v_out
+    return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy, u_out, v_out
 
 class Loss:
     ### An object that we're gonna reset at each epoch
@@ -118,10 +126,15 @@ class Loss:
         self.loss_total.zero_() 
 
     def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False,):
-        continuity, momentum_x, momentum_y, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
-        tmp = torch.mean(continuity**2) + torch.mean(momentum_x**2) + torch.mean(momentum_y**2) + outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2)
+        continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
+        tmp = (torch.mean(continuity**2) + 
+               torch.mean(momentum_x**2) + 
+               torch.mean(momentum_y**2) + 
+               torch.mean(d_momentum_x_dt**2) +
+               torch.mean(d_momentum_x_dx**2) +
+               torch.mean(d_momentum_x_dy**2) +
+               outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2))
         return tmp.to(self.device)
-
 
     def pde_loss(self, txy_col, output, outflow_eq = True):
         assert self.loss_pde_tmp==0 ## otherwise we need to call new_batch before it 
@@ -142,19 +155,19 @@ class Loss:
         self.loss_data_tmp = tmp
         return tmp
     
-    def compute_boundary_loss(self, txy_col, output):
+    def compute_boundary_loss(self, output, boundary):
         """
-        txy_col: [N, 3] tensor of points in the domain
         output: [N, 3] tensor of outputs at those points
         boundary: [N, 3] tensor of boundary conditions at those points
+
+        We suppose that the output is already in the right format
         """
-        boundary = torch.zeros_like(output).to(self.device)
         tmp = nn.MSELoss()(output, boundary).to(self.device)
         return tmp
     
-    def boundary_loss(self, txy_col, output):
+    def boundary_loss(self, output, boundary):
         assert self.loss_boundary_tmp==0
-        tmp = self.compute_boundary_loss(txy_col, output)
+        tmp = self.compute_boundary_loss(output, boundary)
         self.loss_boundary += tmp
         self.loss_boundary_tmp = tmp
         return tmp
@@ -259,7 +272,7 @@ class Loss:
     def update_lambda(self):
         """
         Update the lambda values using the formula in the expert guide paper
-        Do it every n (n=1000 typically) epochs
+        Do it every n (n=1000 e.g.) epochs
         """
         norm_loss_data = self.get_grad_loss(self.loss_data_tmp)
         norm_loss_pde = self.get_grad_loss(self.loss_pde_tmp)

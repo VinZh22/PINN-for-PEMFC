@@ -16,17 +16,21 @@ import src.tools.plot_tools as plot_tools
 import src.tools.util_func as util_func
 from datetime import datetime
 
-def train_and_save_data(model, device, config, save_dir, epochs, non_dim, forward_transform_input, forward_transform_output):
+def train_and_save_data(model, device, config, save_dir, epochs, non_dim,
+                        log_interval, update_interval,
+                        forward_transform_input, forward_transform_output):
     train_data = train.Train_Loop_data(
         model=model,
         device=device,
         nondim_input=forward_transform_input,
         nondim_output=forward_transform_output,
+        refresh_bar=update_interval,
+        log_interval=log_interval,
     )
 
     intermediate_model = train_data.train_pinn(
         config=config,
-        log_path=save_dir,
+        save_path=save_dir,
         train_prop=0.01,
         nu=0.01,
         epochs=epochs,
@@ -61,6 +65,11 @@ def train_and_save_data(model, device, config, save_dir, epochs, non_dim, forwar
     loss_history_train, loss_history_test = train_data.get_loss_history()
     plot_tools.plot_loss_history({"train_loss": loss_history_train, "val_loss": loss_history_test}, save_dir=save_dir, additional_name="_intermediate_model")
 
+    train_data.save_model(
+        path=save_dir,
+        additional_name="_intermediate_model",
+    )
+
     return intermediate_model
 
 def train_and_save_nodata(model, device, config, save_dir, epochs, non_dim, forward_transform_input, forward_transform_output):
@@ -74,7 +83,7 @@ def train_and_save_nodata(model, device, config, save_dir, epochs, non_dim, forw
 
     final_model = train_obj.train_pinn(
         config=config,
-        log_path=save_dir,
+        save_path=save_dir,
         train_prop=0.4,
         nu=0.01,
         epochs=epochs,
@@ -122,7 +131,7 @@ def main(args):
     print(f"Using device: {device}")
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    save_dir = f'./results/{timestamp}_dimension'
+    save_dir = f'./results/{timestamp}'
 
     util_func.save_args(args, save_dir=save_dir)
 
@@ -134,7 +143,7 @@ def main(args):
         forward_transform_input, forward_transform_output = util_func.get_non_dim_transform()
 
 
-    layer = [args.in_dim_RFF] + [args.features] * args.n_layers + [3]
+    layer = [args.in_dim] + [args.features] * args.n_layers + [3]
     if args.model == 'mlp':
         PINN = model.PINN_linear(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'modified_mlp':
@@ -148,10 +157,12 @@ def main(args):
         epochs=args.epochs_data,
         non_dim=non_dim,
         forward_transform_input=forward_transform_input,
-        forward_transform_output=forward_transform_output
+        forward_transform_output=forward_transform_output,
+        update_interval=args.update_iter,
+        log_interval=args.log_iter
     )
 
-    if args.no_data_refine:
+    if args.pde_refine:
         print("Finished training the intermediate model. Gonna start refining using pde and equations")
 
         final_model = train_and_save_nodata(
@@ -189,22 +200,24 @@ if __name__ == '__main__':
     # parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--non_dim', type=bool, default=False, help='whether to use non-dimensionalization')
     # parser.add_argument('--batch_size', type=int, default=256, help='batch size')
-    parser.add_argument('--no_data_refine', type=bool, default=False, help='whether to use no data to refine the model')
+    parser.add_argument('--pde_refine', type=bool, default=False, help='whether to use no data to refine the model')
     parser.add_argument('--epochs_data', type=int, default=5000, help='training epochs for data')
     parser.add_argument('--epochs_nodata', type=int, default=2000, help='training epochs for no data')
 
     # model settings
-    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp'], help='type of mlp')
+    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved'], help='type of mlp')
     parser.add_argument('--n_layers', type=int, default=4, help='the number of layer')
     parser.add_argument('--features', type=int, default=256, help='feature size of each layer')
     parser.add_argument('--RFF', type=bool, default=False, help='whether to use Random Fourier Features')
     parser.add_argument('--in_dim', type=int, default=3, help='size of model input, might not be 3 if using RFF')
-
+    parser.add_argument('--saved_model', type=str, default=None, help='path to saved model')
 
     # log settings
-    parser.add_argument('--log_iter', type=int, default=1000, help='print log every...')
-    parser.add_argument('--update_iter', type=int, default=50000, help='update progress bar every...')
+    parser.add_argument('--log_iter', type=int, default=50, help='print log every...')
+    parser.add_argument('--update_iter', type=int, default=500, help='update progress bar every...')
 
     args = parser.parse_args()
+
+    assert args.model != 'saved' or args.saved_model is not None, "Please provide a saved model path if using the saved model option."
 
     main(args)
