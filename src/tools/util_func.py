@@ -9,6 +9,7 @@ y_std = 8.089716e+00
 T_mean = 7.550000e+01
 
 U_std = 3.204348e-01
+U_std = 6.368400e-01 ## TMP, only for cylinder diagonal IC
 T_std = x_std / U_std
 
 nu = 0.01
@@ -53,6 +54,31 @@ def get_non_dim_transform():
         A tuple containing the non-dimensionalization functions for input and output data.
     """
     return forward_transform_input, forward_transform_output
+
+def inverse_transform_input(X):
+    """
+    Inverse transform the input data to original scale.
+    """
+    t, x, y = X[0], X[1], X[2]
+    x = x * x_std + x_mean
+    y = y * x_std + y_mean
+    t = t * T_std + T_mean
+
+    return np.array([t, x, y])
+inverse_transform_input = np.vectorize(inverse_transform_input, signature='(n)->(n)')
+
+def inverse_transform_output(y):
+    """
+    Inverse transform the output data to original scale.
+    """
+    u, v, p = y[0], y[1], y[2]
+    u = u * U_std
+    v = v * U_std
+    p = p * U_std**2
+
+    return np.array([u, v, p])
+inverse_transform_output = np.vectorize(inverse_transform_output, signature='(n)->(n)')
+
 
 def get_Reynolds():
     """

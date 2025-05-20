@@ -93,20 +93,20 @@ class ModifiedMLP(nn.Module):
         return x
 
 class PINN_import(PINN):
-    def __init__(self, model_path, input_len, output_len, RFF = False, RFF_sigma = 1., hard_constraint = None,):
+    def __init__(self, model_path, input_len, device, output_len, RFF = False, RFF_sigma = 1., hard_constraint = None,):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
 
-        super(PINN_import, self).__init__(input_len, output_len, RFF, RFF_sigma, hard_constraint)
+        super(PINN_import, self).__init__(input_len, output_len, device, RFF, RFF_sigma, hard_constraint)
         self.load_model(model_path)
 
     def load_model(self, model_path):
         """
         Load the model from the specified path.
         """
-        self.model = torch.load(model_path)
+        self.model = torch.load(model_path,  weights_only=False)
 
 class PINN_LORA(PINN):
     def __init__(self, rank, features, pos_enc, mlp = 'modified_mlp', output_len = 3, RFF = False, RFF_sigma = 1., hard_constraint = None, ):

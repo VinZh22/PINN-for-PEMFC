@@ -62,6 +62,10 @@ def import_data(file_path, nondim_input = None, nondim_output = None):
         The output data as a numpy array.
     """
     df = pd.read_csv(file_path)
+
+    # Remove the first frame because not relevant and sometime not feasible
+    df = df[df["Time"] != 0]
+
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 

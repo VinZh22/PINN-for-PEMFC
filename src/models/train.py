@@ -124,9 +124,6 @@ class Train_Loop(ABC):
                 self.loss_obj.backward(retain = False)
                 optimizer.step()
                 scheduler.step()
-            if self.lambda_data == 0.:
-                # pdb.set_trace()
-                pass
             self.loss_history_train.append(self.loss_obj.get_loss_pde().item() / num_batches)
             if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                 test_loader = batch_data(xyt_col_test, output_data_test, batch_size, shuffle=False)

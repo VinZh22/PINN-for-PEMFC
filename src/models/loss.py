@@ -126,14 +126,13 @@ class Loss:
         self.loss_total.zero_() 
 
     def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False,):
+        enhanced = False
         continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
         tmp = (torch.mean(continuity**2) + 
                torch.mean(momentum_x**2) + 
                torch.mean(momentum_y**2) + 
-               torch.mean(d_momentum_x_dt**2) +
-               torch.mean(d_momentum_x_dx**2) +
-               torch.mean(d_momentum_x_dy**2) +
-               outflow_eq * torch.mean(u_out**2) + outflow_eq * torch.mean(v_out**2))
+               enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2)) +
+               outflow_eq * (torch.mean(u_out**2) + torch.mean(v_out**2)))
         return tmp.to(self.device)
 
     def pde_loss(self, txy_col, output, outflow_eq = True):

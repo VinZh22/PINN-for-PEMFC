@@ -125,7 +125,7 @@ def main(args):
     np.random.seed(seed)
 
     # Load data
-    data_dir = args.data_dir
+    data_dir = os.path.join(args.data_path_file, args.data_name_file)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -148,6 +148,8 @@ def main(args):
         PINN = model.PINN_linear(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'modified_mlp':
         PINN = model.PINN_mod_MLP(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
+    elif args.model == 'saved':
+        PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=3, RFF = args.RFF, device = device)
 
     intermediate_model = train_and_save_data(
         model=PINN,
@@ -184,6 +186,7 @@ def main(args):
     plot_tools.plot_difference_reference(final_model, device, 
                                         data_path=data_dir, 
                                         save_dir=save_dir, 
+                                        non_dim=non_dim,
                                         forward_transform_input=forward_transform_input, 
                                         forward_transform_output=forward_transform_output)
 
@@ -193,7 +196,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training configurations')
 
     # data directory
-    parser.add_argument('--data_dir', type=str, default="./data/cylinder.csv", help='a directory to reference solution')
+    parser.add_argument('--data_path_file', type=str, default="./data/", help='path to the data file')
+    parser.add_argument('--data_name_file', type=str, default="cylinder.csv", help='name of the data file')
 
     # training settings
     parser.add_argument('--seed', type=int, default=42, help='random seed')

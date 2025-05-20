@@ -3,10 +3,12 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import pdb
 from torch.utils.data import DataLoader
 from matplotlib.animation import FuncAnimation
 from src.data_process.load_data import import_data
 from tqdm import tqdm
+from .util_func import inverse_transform_input, inverse_transform_output
 
 def evaluate_model(model, test_loader, device, max_batch_size=1024):
     """
@@ -161,12 +163,11 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
 
         # Predict velocity (u, v) and pressure (p)
         with torch.no_grad():
-            uvp_pred = model(txy)
+            uvp_pred = model(txy).cpu().numpy()
+        if non_dim:
+            uvp_pred = inverse_transform_output(uvp_pred)
         u_pred = uvp_pred[:, 0].reshape(X.shape)
         v_pred = uvp_pred[:, 1].reshape(X.shape)
-        
-        u_pred = u_pred.cpu().numpy()
-        v_pred = v_pred.cpu().numpy()
         # Compute speed magnitude: sqrt(u^2 + v^2)
         # speed = np.sqrt(u_pred**2 + v_pred**2)
         speed = u_pred
@@ -195,7 +196,7 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
     ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()
 
-def plot_difference_reference(model, device, data_path, save_dir, non_dim=True, forward_transform_input=None, forward_transform_output=None):
+def plot_difference_reference(model, device, data_path, save_dir, non_dim=False, forward_transform_input=None, forward_transform_output=None):
     """
     Plot for the model the MSE of the space with time, plot at each point in space the average MSE over time and 
     """
@@ -217,6 +218,9 @@ def plot_difference_reference(model, device, data_path, save_dir, non_dim=True, 
         mse = nn.MSELoss()(pred, target)
         mse_over_time.append(mse.item())
     mse_over_time = np.array(mse_over_time)
+    ## remove normalization for the plot
+    if non_dim:
+        time_steps = np.unique(inverse_transform_input(X)[:,0])
     # Plot the MSE over time
     plt.figure(figsize=(10, 6))
     plt.plot(time_steps, mse_over_time, label='MSE over time')
@@ -227,6 +231,7 @@ def plot_difference_reference(model, device, data_path, save_dir, non_dim=True, 
     plt.legend()
     plt.savefig(os.path.join(save_dir, 'mse_over_time.png'), dpi=300, bbox_inches='tight')
     plt.close()
+
     # --- Now the MSE over time at each point in space
     mse_over_space = []
     space = []
@@ -238,6 +243,8 @@ def plot_difference_reference(model, device, data_path, save_dir, non_dim=True, 
         target = Y_tensor[indices]
         mse = nn.MSELoss()(pred, target)
         mse_over_space.append(mse.item())
+        if non_dim:
+            point = inverse_transform_input(np.concatenate(([0.], point)))[1:] ## add a time axis for the inverse transform, then remove it through slicing
         space.append(point)
     mse_over_space = np.array(mse_over_space)
     space = np.array(space)
