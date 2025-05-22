@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import pdb
 
 
 def convert_to_numpy(data, nondim_input = None, nondim_output = None):
@@ -64,7 +65,8 @@ def import_data(file_path, nondim_input = None, nondim_output = None):
     df = pd.read_csv(file_path)
 
     # Remove the first frame because not relevant and sometime not feasible
-    df = df[df["Time"] != 0]
+    df = df[df["Time"] > 1]
+    df = df[df["Points:2"]==0.5] ## it's 2D, so the z coordinate is not relevant and duplicate the points
 
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)

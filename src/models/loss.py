@@ -15,13 +15,11 @@ def timer_decorator(func):
     return wrapper
 
 
-def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
+def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, eval=False):
     """
     Time-dependent Navier-Stokes PDE residual.
     Lets suppose that nu = 0.01 is not changed (otherwise change util_func.py)
     """
-
-    Re = util_func.get_Reynolds()
 
     # PDE Residual Loss
     txy_col.requires_grad_(True)
@@ -51,13 +49,9 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
     if non_dim:
         momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - (1/Re) * (d2u_dx2 + d2u_dy2)
         momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - (1/Re) * (d2v_dx2 + d2v_dy2)
-        u_out = du_dx /Re - p
-        v_out = dv_dx
     else:
         momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - nu * (d2u_dx2 + d2u_dy2)
         momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - nu * (d2v_dx2 + d2v_dy2)
-        u_out = du_dx*nu - p
-        v_out = dv_dx
 
     ## TEST de gradient-enhanced
     d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
@@ -78,15 +72,17 @@ def navier_stokes(txy_col, output, nu = 0.01, non_dim = False, eval=False):
         d_momentum_x_dt = d_momentum_x_dt.detach()
         d_momentum_x_dx = d_momentum_x_dx.detach()
         d_momentum_x_dy = d_momentum_x_dy.detach()
-        u_out = u_out.detach()
-        v_out = v_out.detach()
 
-    return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy, u_out, v_out
+    return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
 
 class Loss:
     ### An object that we're gonna reset at each epoch
-    def __init__(self, model, device, nu = 0.01, alpha = 0.9, non_dim = True, need_loss = [True]*4, lambda_list = [1.]*4):
+    def __init__(self, model, device,
+                 nu = 0.01, Re = 100., alpha = 0.9,
+                 non_dim = True, need_loss = [True]*4, lambda_list = [1.]*4):
+        
         self.nu = nu
+        self.Re = Re
         self.non_dim = non_dim
         self.model = model
         self.device = device
@@ -125,14 +121,13 @@ class Loss:
         self.loss_epoch_tmp.zero_()
         self.loss_total.zero_() 
 
-    def compute_pde_loss(self, txy_col, output, outflow_eq = True, eval = False,):
-        enhanced = False
-        continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy, u_out, v_out = navier_stokes(txy_col, output, self.nu, self.non_dim, eval = eval)
+    def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
+        continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy= navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, eval = eval)
         tmp = (torch.mean(continuity**2) + 
                torch.mean(momentum_x**2) + 
                torch.mean(momentum_y**2) + 
-               enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2)) +
-               outflow_eq * (torch.mean(u_out**2) + torch.mean(v_out**2)))
+               enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2))
+               )
         return tmp.to(self.device)
 
     def pde_loss(self, txy_col, output, outflow_eq = True):

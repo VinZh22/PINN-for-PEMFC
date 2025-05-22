@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-Instructions and examples for using your project.
+Attention, for now, if you want to use a particular dataset, you have to change the normalization constant in src/tools/util_func.py. 
 
 ```bash
 # Example

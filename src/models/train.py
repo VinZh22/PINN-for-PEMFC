@@ -26,26 +26,30 @@ class Train_Loop(ABC):
     Abstract class for training loops.
     """
 
-    def __init__(self, model, device, need_loss, lambda_list, nu, alpha, nondim_input = None, nondim_output = None, refresh_bar = 500, log_interval = 50):
+    def __init__(self, model, device, need_loss, lambda_list, 
+                 nu, Re, alpha, batch_size, 
+                 nondim_input = None, nondim_output = None, 
+                 refresh_bar = 500, log_interval = 50):
 
 
         self.model = model
         self.device = device
         self.need_loss = need_loss
         self.nu = nu
+        self.Re = Re
         self.alpha = alpha
         self.refresh_bar = refresh_bar
         self.log_interval = log_interval
         self.nondim_input = nondim_input
         self.nondim_output = nondim_output
-        self.batch_size = 8000  # Define batch size
+        self.batch_size = batch_size 
 
         self.lambda_data = lambda_list[0]
         self.lambda_pde = lambda_list[1]
         self.lambda_boundary = lambda_list[2]
         self.lambda_initial = lambda_list[3]
 
-        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list)
+        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list)
         self.loss_history_train = []
         self.loss_history_test = []
         
@@ -97,7 +101,7 @@ class Train_Loop(ABC):
         decay = 0.1
         decay_steps = 2000
 
-        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
         scheduler = ExponentialLR(optimizer, gamma=(1 - decay/decay_steps))
         progress_bar = tqdm(range(epochs), desc="Training Progress", unit="epoch")
 
@@ -118,7 +122,7 @@ class Train_Loop(ABC):
                 optimizer.zero_grad()
                 if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                     # Adapting the weights for different losses
-                    # Doing it every batch of the epoch
+                    # Doing it every batch of the epoch, to allow a backward without retaining the graph
                     if adapting_weight:
                         self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial = self.loss_obj.update_lambda()
                 self.loss_obj.backward(retain = False)
@@ -230,10 +234,10 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model, device, nondim_input = None, nondim_output = None, nu=0.01, alpha=0.9, refresh_bar=500, log_interval=50):
+    def __init__(self, model, device, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
         super().__init__(model, device,
                          [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval,
-                         nu=nu, alpha=alpha, nondim_input=nondim_input, nondim_output=nondim_output,)
+                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
 
     def compute_loss(self, inputs, outputs, targets):
         """
@@ -278,10 +282,10 @@ class Train_Loop_data(Train_Loop):
         )
 
 class Train_Loop_nodata(Train_Loop):
-    def __init__(self, model, device, init_path, nondim_input = None, nondim_output = None, nu=0.01, alpha=0.9):
+    def __init__(self, model, device, init_path, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):
         super().__init__(model, device, 
                          [False, True, True, True], [0., 0., 1., 0.],
-                         nu=nu, alpha=alpha, nondim_input=nondim_input, nondim_output=nondim_output,)
+                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
         
         ## TO DO along with compute_loss for BC
         self.set_condition_data()

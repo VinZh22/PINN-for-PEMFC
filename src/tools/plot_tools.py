@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from matplotlib.animation import FuncAnimation
 from src.data_process.load_data import import_data
 from tqdm import tqdm
-from .util_func import inverse_transform_input, inverse_transform_output
 
 def evaluate_model(model, test_loader, device, max_batch_size=1024):
     """
@@ -128,7 +127,9 @@ def plot_loss_history(history, save_dir, additional_name = ""):
     plt.savefig(os.path.join(save_dir, 'loss_history' + additional_name + '.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_transform_input=None, additional_name = ""):
+def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, device, 
+                   non_dim=True, forward_transform_input=None, inverse_transform_output = None,
+                   additional_name = ""):
     """
     Plot speed maps over time using the trained model.
     Parameters:
@@ -168,14 +169,13 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
             uvp_pred = inverse_transform_output(uvp_pred)
         u_pred = uvp_pred[:, 0].reshape(X.shape)
         v_pred = uvp_pred[:, 1].reshape(X.shape)
-        # Compute speed magnitude: sqrt(u^2 + v^2)
-        # speed = np.sqrt(u_pred**2 + v_pred**2)
-        speed = u_pred
+
+        speed = np.sqrt(u_pred**2 + v_pred**2)
         speed_maps.append(speed)
 
     # Set up the figure
     fig, ax = plt.subplots(figsize=(8, 6))
-    cax = ax.contourf(X, Y, speed_maps[0], levels=20, cmap='jet')
+    cax = ax.contourf(X, Y, speed_maps[0], levels=20, cmap='viridis')
     circle = plt.Circle((0, 0), .5, color='white', fill=True, linewidth=2) ## ONE HYPERPARAMETER TO ALLOW CHANGE LATER
     plt.colorbar(cax, label='Speed (m/s)')
     ax.set_xlabel('x')
@@ -184,7 +184,7 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
 
     def update(frame):
         ax.clear()
-        cax = ax.contourf(X, Y, speed_maps[frame], levels=20, cmap='jet')
+        cax = ax.contourf(X, Y, speed_maps[frame], levels=20, cmap='viridis')
         ax.add_artist(circle)
         ax.set_title(f'Speed Map at t = {t[frame]:.2f}s')
         return cax
@@ -196,7 +196,8 @@ def plot_speed_map(model, X, Y, t, save_dir, device, non_dim=True, forward_trans
     ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()
 
-def plot_difference_reference(model, device, data_path, save_dir, non_dim=False, forward_transform_input=None, forward_transform_output=None):
+def plot_difference_reference(model, device, data_path, save_dir, 
+                              non_dim=False, forward_transform_input=None, forward_transform_output=None, inverse_transform_input=None):
     """
     Plot for the model the MSE of the space with time, plot at each point in space the average MSE over time and 
     """
@@ -250,7 +251,7 @@ def plot_difference_reference(model, device, data_path, save_dir, non_dim=False,
     space = np.array(space)
     # Plot the MSE over space
     plt.figure(figsize=(10, 6))
-    plt.scatter(space[:,0], space[:,1], c=mse_over_space, cmap='jet')
+    plt.scatter(space[:,0], space[:,1], c=mse_over_space, cmap='viridis')
     plt.colorbar(label='MSE')
     plt.title('MSE over space')
     plt.xlabel('x')
@@ -258,7 +259,4 @@ def plot_difference_reference(model, device, data_path, save_dir, non_dim=False,
     plt.grid(True, alpha=0.3)
     plt.savefig(os.path.join(save_dir, 'mse_over_space.png'), dpi=300, bbox_inches='tight')
     plt.close()
-
-
-
 

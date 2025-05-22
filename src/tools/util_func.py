@@ -1,90 +1,98 @@
 import numpy as np
+import pandas as pd
 import os
 
-x_mean = 3.088352e+00
-y_mean = -1.905240e-16	
-x_std =  1.051818e+01
-y_std = 8.089716e+00
-## x_std = y_std approximately, so let's just use x_std
-T_mean = 7.550000e+01
+from src.data_process.load_data import import_data
 
-U_std = 3.204348e-01
-U_std = 6.368400e-01 ## TMP, only for cylinder diagonal IC
-T_std = x_std / U_std
-
-nu = 0.01
-
-def forward_transform_input(X):
+def get_2D_non_dim(data_path, nu = 0.01):
     """
-    Give this function to the train function and also when plotting to format the input into a normalized format
-    """
+    Get the non-dimensionalization parameters for 2D data.
+    Parameters
+    ----------
+    data_path : str
+        Path to the data file.
+    nu : float, optional
+        Kinematic viscosity. The default is 0.01.
 
-    # data from the cylinder.csv file, get it separately, no need to compute if everytime
-    t,x,y = X[0], X[1], X[2]
-    # Non-dimensionalize velocity and pressure
-    x = (x - x_mean) / x_std
-    y = (y - y_mean) / x_std
-    t = (t - T_mean) / T_std
-
-    return np.array([t, x, y])
-forward_transform_input = np.vectorize(forward_transform_input, signature='(n)->(n)')
-
-def forward_transform_output(y):
-    """
-    Give this function to the output data before training to format the output and compare the results
-    """
-
-    # data from the cylinder.csv file, get it separately, no need to compute if everytime
-    
-
-    u,v,p = y[0], y[1], y[2]
-    # Non-dimensionalize velocity and pressure
-    u = u / U_std
-    v = v / U_std
-    p = p / U_std**2 ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
-    return np.array([u, v, p])
-forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
-
-def get_non_dim_transform():
-    """
-    Get the non-dimensionalization functions for input and output data.
     Returns
     -------
     tuple
-        A tuple containing the non-dimensionalization functions for input and output data.
+        (forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re)
     """
-    return forward_transform_input, forward_transform_output
+    # Load the data
+    input,output = import_data(data_path)
+    
+    x_mean = np.mean(input[:,1])
+    y_mean = np.mean(input[:,2])
+    x_std = np.std(input[:,1])
+    y_std = np.std(input[:,2])
+    L = np.sqrt(x_std**2 + y_std**2) ## L is the length scale, which is the diagonal of the cylinder
+    T_mean = np.mean(input[:,0])
+    U_std = np.std(output[:,0])
+    V_std = np.std(output[:,1])
 
-def inverse_transform_input(X):
-    """
-    Inverse transform the input data to original scale.
-    """
-    t, x, y = X[0], X[1], X[2]
-    x = x * x_std + x_mean
-    y = y * x_std + y_mean
-    t = t * T_std + T_mean
+    U_hat = np.sqrt(U_std**2 + V_std**2)
 
-    return np.array([t, x, y])
-inverse_transform_input = np.vectorize(inverse_transform_input, signature='(n)->(n)')
+    L = x_std
+    U_hat = U_std
 
-def inverse_transform_output(y):
-    """
-    Inverse transform the output data to original scale.
-    """
-    u, v, p = y[0], y[1], y[2]
-    u = u * U_std
-    v = v * U_std
-    p = p * U_std**2
+    T_hat = L / U_hat
 
-    return np.array([u, v, p])
-inverse_transform_output = np.vectorize(inverse_transform_output, signature='(n)->(n)')
+    def forward_transform_input(X):
+        """
+        Give this function to the train function and also when plotting to format the input into a normalized format
+        """
+        t,x,y = X[0], X[1], X[2]
+        # Non-dimensionalize velocity and pressure
+        x = (x - x_mean) / L
+        y = (y - y_mean) / L
+        t = (t - T_mean) / T_hat
+
+        return np.array([t, x, y])
+    forward_transform_input = np.vectorize(forward_transform_input, signature='(n)->(n)')
+
+    def forward_transform_output(y):
+        """
+        Give this function to the output data before training to format the output and compare the results
+        """
+
+        u,v,p = y[0], y[1], y[2]
+        # Non-dimensionalize velocity and pressure
+        u = u / U_hat
+        v = v / U_hat
+        p = p / U_hat**2 ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
+        return np.array([u, v, p])
+    forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
+
+    def inverse_transform_input(X):
+        """
+        Inverse transform the input data to original scale.
+        """
+        t, x, y = X[0], X[1], X[2]
+        x = x * L + x_mean
+        y = y * L + y_mean
+        t = t * T_hat + T_mean
+
+        return np.array([t, x, y])
+    inverse_transform_input = np.vectorize(inverse_transform_input, signature='(n)->(n)')
+
+    def inverse_transform_output(y):
+        """
+        Inverse transform the output data to original scale.
+        """
+        u, v, p = y[0], y[1], y[2]
+        u = u * U_hat
+        v = v * U_hat
+        p = p * U_hat**2
+
+        return np.array([u, v, p])
+    inverse_transform_output = np.vectorize(inverse_transform_output, signature='(n)->(n)')
 
 
-def get_Reynolds():
-    """
-    Re = U * L / nu
-    """
-    return U_std * x_std / nu
+    Re = U_hat * L / nu
+
+    return forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re
+
 
 
 def save_args(args, save_dir):
@@ -95,8 +103,3 @@ def save_args(args, save_dir):
     with open(os.path.join(save_dir, 'args.txt'), 'w') as f:
         for key, value in vars(args).items():
             f.write(f"{key}: {value}\n")
-
-
-
-
-
