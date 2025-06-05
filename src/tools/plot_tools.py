@@ -114,8 +114,13 @@ def plot_loss_history(history, save_dir, additional_name = ""):
         Directory to save the plot.
     """
     plt.figure(figsize=(10, 6))
-    plt.plot(history['train_loss'], label='Train Loss')
-    plt.plot(history['val_loss'][:,0], history['val_loss'][:,1], label='Validation Loss')
+    for key, val in history.items():
+        if val.shape[0] == 2:  # Check if val_loss has two columns (epoch, loss)
+            plt.plot(val[:, 0], val[:, 1], label=key)
+        else:
+            plt.plot(val, label=key)
+    # plt.plot(history['train_loss'], label='Train Loss')
+    # plt.plot(history['val_loss'][:,0], history['val_loss'][:,1], label='Validation Loss')
     plt.title('Loss History')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')

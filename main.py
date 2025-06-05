@@ -17,7 +17,7 @@ import src.tools.plot_tools as plot_tools
 import src.tools.util_func as util_func
 from datetime import datetime
 
-def train_and_save(train_obj, device, config, save_dir, epochs, non_dim,
+def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epochs, non_dim,
                    forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output,
                    additional_name = "", train_prop = 0.01):
     trained_model = train_obj.train_pinn(
@@ -32,8 +32,7 @@ def train_and_save(train_obj, device, config, save_dir, epochs, non_dim,
 
     os.makedirs(save_dir, exist_ok=True)
 
-    loss_history_train, loss_history_test = train_obj.get_loss_history()
-    plot_tools.plot_loss_history({"train_loss": loss_history_train, "val_loss": loss_history_test}, save_dir=save_dir, additional_name="_intermediate_model")
+    plot_tools.plot_loss_history(train_obj.get_loss_history(), save_dir=save_dir, additional_name="_intermediate_model")
 
     # Define time and space grids
     inp, _ = load_data.import_data(
@@ -69,6 +68,14 @@ def train_and_save(train_obj, device, config, save_dir, epochs, non_dim,
     )
 
     return trained_model
+
+def force_2D(df):
+    z_values = df['Points:2'].values
+    z_sampled = z_values[0]
+    df = df[df['Points:2'] == z_sampled]
+    df = df.drop(columns=['Points:2', 'U:2'])
+
+    return df
 
 def main(args):
     seed = args.seed
@@ -188,10 +195,12 @@ if __name__ == '__main__':
     # data directory
     parser.add_argument('--data_path_file', type=str, default="./data/", help='path to the data file')
     parser.add_argument('--data_name_file', type=str, default="cylinder.csv", help='name of the data file')
+    parser.add_argument('--force2D', type=bool, default=False, help='whether to force the data to be 2D, i.e., only use x and y coordinates')
 
     # training settings
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     # parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to 2*batch_size')
     parser.add_argument('--non_dim', type=bool, default=False, help='whether to use non-dimensionalization')
     parser.add_argument('--nu', type=float, default=0.01, help='kinematic viscosity')
     parser.add_argument('--batch_size', type=int, default=8192, help='batch size')

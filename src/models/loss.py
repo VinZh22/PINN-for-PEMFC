@@ -15,7 +15,7 @@ def timer_decorator(func):
     return wrapper
 
 
-def navier_stokes_2D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False, eval=False):
+def navier_stokes_2D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False):
     """
     Time-dependent Navier-Stokes PDE residual.
     Lets suppose that nu = 0.01 is not changed (otherwise change util_func.py)
@@ -47,44 +47,89 @@ def navier_stokes_2D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enh
     
     # Momentum equations
     if non_dim:
-        momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - (1/Re) * (d2u_dx2 + d2u_dy2)
-        momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - (1/Re) * (d2v_dx2 + d2v_dy2)
+        coeff = 1 / Re
     else:
-        momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - nu * (d2u_dx2 + d2u_dy2)
-        momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - nu * (d2v_dx2 + d2v_dy2)
+        coeff = nu
+    
+    momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - coeff * (d2u_dx2 + d2u_dy2)
+    momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - coeff * (d2v_dx2 + d2v_dy2)
 
     if enhanced:
         d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
         d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
-
-    # Detach gradients if eval
-    if eval:
-        du = du.detach()
-        dv = dv.detach()
-        dp = dp.detach()
-        d2u_dx2 = d2u_dx2.detach()
-        d2u_dy2 = d2u_dy2.detach()
-        d2v_dx2 = d2v_dx2.detach()
-        d2v_dy2 = d2v_dy2.detach()
-        continuity = continuity.detach()
-        momentum_x = momentum_x.detach()
-        momentum_y = momentum_y.detach()
-        if enhanced:
-            d_momentum_x_dt = d_momentum_x_dt.detach()
-            d_momentum_x_dx = d_momentum_x_dx.detach()
-            d_momentum_x_dy = d_momentum_x_dy.detach()
 
     if enhanced:
         return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
     else:
         return continuity, momentum_x, momentum_y
 
+def navier_stokes_3D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False):
+    # PDE Residual Loss
+    txy_col.requires_grad_(True)
+    u, v, w, p = output[:, 0], output[:, 1], output[:, 2], output[:, 3]
+
+    # First derivatives
+    du= torch.autograd.grad(u, txy_col, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+    du_dt, du_dx, du_dy, du_dz = du[:, 0], du[:, 1], du[:, 2], du[:, 3]
+
+    dv = torch.autograd.grad(v, txy_col, grad_outputs=torch.ones_like(v), create_graph=True)[0]
+    dv_dt, dv_dx, dv_dy, dv_dz = dv[:, 0], dv[:, 1], dv[:, 2], dv[:, 3]
+
+    dw = torch.autograd.grad(w, txy_col, grad_outputs=torch.ones_like(w), create_graph=True)[0]
+    dw_dt, dw_dx, dw_dy, dw_dz = dw[:, 0], dw[:, 1], dw[:, 2], dw[:, 3]
+
+    dp = torch.autograd.grad(p, txy_col, grad_outputs=torch.ones_like(p), create_graph=True)[0]
+    dp_dx, dp_dy, dp_dz = dp[:, 1], dp[:, 2], dp[:, 3]
+
+    # Second derivatives
+    d2u_dx2 = torch.autograd.grad(du_dx, txy_col, grad_outputs=torch.ones_like(du_dx), create_graph=True)[0][:, 1]
+    d2u_dy2 = torch.autograd.grad(du_dy, txy_col, grad_outputs=torch.ones_like(du_dy), create_graph=True)[0][:, 2]
+    d2u_dz2 = torch.autograd.grad(du_dz, txy_col, grad_outputs=torch.ones_like(du_dz), create_graph=True)[0][:, 3]
+
+    d2v_dx2 = torch.autograd.grad(dv_dx, txy_col, grad_outputs=torch.ones_like(dv_dx), create_graph=True)[0][:, 1]
+    d2v_dy2 = torch.autograd.grad(dv_dy, txy_col, grad_outputs=torch.ones_like(dv_dy), create_graph=True)[0][:, 2]
+    d2v_dz2 = torch.autograd.grad(dv_dz, txy_col, grad_outputs=torch.ones_like(dv_dz), create_graph=True)[0][:, 3]
+
+    d2w_dx2 = torch.autograd.grad(dw_dx, txy_col, grad_outputs=torch.ones_like(dw_dx), create_graph=True)[0][:, 1]
+    d2w_dy2 = torch.autograd.grad(dw_dy, txy_col, grad_outputs=torch.ones_like(dw_dy), create_graph=True)[0][:, 2]
+    d2w_dz2 = torch.autograd.grad(dw_dz, txy_col, grad_outputs=torch.ones_like(dw_dz), create_graph=True)[0][:, 3]
+
+    # Continuity equation (∇·u = 0)
+    continuity = du_dx + dv_dy + dw_dz
+
+    # Momentum equations
+    if non_dim:
+        coeff = 1 / Re
+    else:
+        coeff = nu
+
+    momentum_x = du_dt + u * du_dx + v * du_dy + w * du_dz + dp_dx - coeff * (d2u_dx2 + d2u_dy2 + d2u_dz2)
+    momentum_y = dv_dt + u * dv_dx + v * dv_dy + w * dv_dz + dp_dy - coeff * (d2v_dx2 + d2v_dy2 + d2v_dz2)
+    momentum_z = dw_dt + u * dw_dx + v * dw_dy + w * dw_dz + dp_dz - coeff * (d2w_dx2 + d2w_dy2 + d2w_dz2)
+
+    if enhanced:
+        d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
+        d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
+
+
+    if enhanced:
+        return continuity, momentum_x, momentum_y, momentum_z, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+    else:
+        return continuity, momentum_x, momentum_y, momentum_z
+
+
 def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False, eval=False):
     dim = txy_col.shape[1]
     if dim == 3: ## time + 2D space
-        return navier_stokes_2D(txy_col, output, nu, Re, non_dim, enhanced, eval)
+        res =  navier_stokes_2D(txy_col, output, nu, Re, non_dim, enhanced)
     elif dim == 4: ## time + 3D space
-        raise NotImplementedError("3D Navier-Stokes is not implemented yet.")
+        res = navier_stokes_3D(txy_col, output, nu, Re, non_dim, enhanced)
+    
+    # Detach gradients if eval
+    if eval:
+        for residual in res:
+            residual.detach_()
+    return res
 
 class Loss:
     ### An object that we're gonna reset at each epoch
@@ -135,13 +180,7 @@ class Loss:
     def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
         ## if enhanced False, in the navier stokes fct there shouldnt be the d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
         residuals = navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, enhanced = enhanced, eval = eval)
-        tmp = torch.sum([torch.mean(residual**2) for residual in residuals])
-        # continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy= navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, eval = eval)
-        # tmp = (torch.mean(continuity**2) + 
-        #        torch.mean(momentum_x**2) + 
-        #        torch.mean(momentum_y**2) + 
-        #        enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2))
-        #        )
+        tmp = torch.sum(torch.mean(torch.vstack(residuals)**2,dim=1))
         return tmp.to(self.device)
 
     def pde_loss(self, txy_col, output, outflow_eq = True):

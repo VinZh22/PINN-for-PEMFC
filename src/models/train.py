@@ -26,8 +26,8 @@ class Train_Loop(ABC):
     Abstract class for training loops.
     """
 
-    def __init__(self, model, device, need_loss, lambda_list, 
-                 nu, Re, alpha, batch_size, 
+    def __init__(self, model:model.PINN, device, need_loss, lambda_list, 
+                 nu, Re, alpha, batch_size, data:pd.DataFrame,
                  nondim_input = None, nondim_output = None, 
                  refresh_bar = 500, log_interval = 50):
 
@@ -43,6 +43,7 @@ class Train_Loop(ABC):
         self.nondim_input = nondim_input
         self.nondim_output = nondim_output
         self.batch_size = batch_size 
+        self.data = data
 
         self.lambda_data = lambda_list[0]
         self.lambda_pde = lambda_list[1]
@@ -148,6 +149,7 @@ class Train_Loop(ABC):
                 optimizer.step()
                 scheduler.step()
             self.loss_history_train.append(self.loss_obj.get_loss_pde().item() / num_batches)
+            
             if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                 test_loader = batch_data(xyt_col_test, output_data_test, batch_size, shuffle=False)
                 loss_test = self.evaluate(test_loader)  # Test loss computation using known data
@@ -174,7 +176,7 @@ class Train_Loop(ABC):
         return self.model
 
     def get_loss_history(self):
-        return self.loss_history_train, self.loss_history_test
+        return {"Train Loss": self.loss_history_train, "val_loss": self.loss_history_test}
     
     def save_model(self, path, additional_name = ""):
         """
@@ -261,11 +263,10 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
+    def __init__(self, model:model.PINN, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
         super().__init__(model, device,
                          [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval,
-                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
-        self.data = data
+                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output,)
 
     def compute_loss(self, inputs, outputs, targets):
         """
@@ -312,12 +313,11 @@ class Train_Loop_data(Train_Loop):
 class Train_Loop_nodata(Train_Loop):
     def __init__(self, model, device, init_path, data, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):
         super().__init__(model, device, 
-                         [False, True, True, True], [0., 0., 1., 0.],
+                         [False, True, True, True], [0., 0., 1., 0.], data=data,
                          nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
         
         ## TO DO along with compute_loss for BC
         self.set_condition_data()
-        self.data = data
         X,Y = import_data(init_path, data) ## we don't put non-dim function because we don't need to apply it to the whole data
         if nondim_input is not None:
             indices = X[:,0] == nondim_input([1,0,0])[0] # get the indices of the points where t = 1

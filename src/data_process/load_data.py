@@ -37,8 +37,6 @@ def convert_to_numpy(data, nondim_input = None, nondim_output = None):
     points_columns = [col.split(":")[1] for col in columns if col.startswith("Points:")]
 
     position_data = [data["Points:" + point].values.astype(np.float32) for point in points_columns]
-    # x_data = data["Points:0"].values.astype(np.float32)
-    # y_data = data["Points:1"].values.astype(np.float32)
     t_data = data["Time"].values.astype(np.float32)
     speed_data = [data["U:" + point].values.astype(np.float32) for point in points_columns]
     p_data = data["p"].values.astype(np.float32)
@@ -58,7 +56,7 @@ def convert_to_numpy(data, nondim_input = None, nondim_output = None):
     return X_data, Y_data
 
 @timer_decorator
-def import_data(file_path:str, df = None, nondim_input = None, nondim_output = None):
+def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nondim_output = None):
     """
     Import data from a CSV file and convert it to numpy arrays.
     Parameters
@@ -80,10 +78,10 @@ def import_data(file_path:str, df = None, nondim_input = None, nondim_output = N
         df = pd.read_csv(file_path)
     # Remove the first frame because not relevant and sometime not feasible
     df = df[df["Time"] > 1]
-    # df = df[df["Points:2"]==0.5] ## it's 2D, so the z coordinate is not relevant and duplicate the points
     time_points = sorted(df["Time"].unique())
     time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
-    df["Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
+    if time_gcd != 1:
+        df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
     print(f"Normalized time to the greatest common divisor: {time_gcd}")
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)

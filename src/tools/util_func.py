@@ -4,7 +4,7 @@ import os
 
 from src.data_process.load_data import import_data
 
-def get_ND_non_dim(data_path, df, nu = 0.01):
+def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     """
     Get the non-dimensionalization parameters for 2D data.
     Parameters
