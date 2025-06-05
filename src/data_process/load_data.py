@@ -2,6 +2,16 @@ import pandas as pd
 import numpy as np
 import pdb
 
+import time
+def timer_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"Execution time: {end_time - start_time} seconds")
+        return result
+    return wrapper
+
 
 def convert_to_numpy(data, nondim_input = None, nondim_output = None):
     """
@@ -21,30 +31,34 @@ def convert_to_numpy(data, nondim_input = None, nondim_output = None):
     Y_data : np.ndarray
         The output data as a numpy array.
     """
-    x_data = data["Points:0"].values.astype(np.float32)
-    y_data = data["Points:1"].values.astype(np.float32)
+
+    columns = data.columns.tolist()
+    ## get the numbers after Points:
+    points_columns = [col.split(":")[1] for col in columns if col.startswith("Points:")]
+
+    position_data = [data["Points:" + point].values.astype(np.float32) for point in points_columns]
+    # x_data = data["Points:0"].values.astype(np.float32)
+    # y_data = data["Points:1"].values.astype(np.float32)
     t_data = data["Time"].values.astype(np.float32)
-    u_data = data["U:0"].values.astype(np.float32)
-    v_data = data["U:1"].values.astype(np.float32)
+    speed_data = [data["U:" + point].values.astype(np.float32) for point in points_columns]
     p_data = data["p"].values.astype(np.float32)
 
     # Reshape to (n_samples, 1)
-    x_data = x_data.reshape(-1, 1)
-    y_data = y_data.reshape(-1, 1)
+    position_data = [pos.reshape(-1, 1) for pos in position_data]
     t_data = t_data.reshape(-1, 1)
-    u_data = u_data.reshape(-1, 1)
-    v_data = v_data.reshape(-1, 1)
+    speed_data = [speed.reshape(-1, 1) for speed in speed_data]
     p_data = p_data.reshape(-1, 1)
 
     # Combine inputs (t, x, y) and outputs (u, v, p)
-    X_data = np.hstack([t_data, x_data, y_data])  # Shape: (n_samples, 3)
-    Y_data = np.hstack([u_data, v_data, p_data])  # Shape: (n_samples, 3)
+    X_data = np.hstack([t_data] + position_data)  # Shape: (n_samples, 3)
+    Y_data = np.hstack(speed_data + [p_data])  # Shape: (n_samples, 3)
     if nondim_input is not None:
         X_data = nondim_input(X_data)
         Y_data = nondim_output(Y_data)
     return X_data, Y_data
 
-def import_data(file_path, nondim_input = None, nondim_output = None):
+@timer_decorator
+def import_data(file_path:str, df = None, nondim_input = None, nondim_output = None):
     """
     Import data from a CSV file and convert it to numpy arrays.
     Parameters
@@ -62,12 +76,15 @@ def import_data(file_path, nondim_input = None, nondim_output = None):
     Y : np.ndarray
         The output data as a numpy array.
     """
-    df = pd.read_csv(file_path)
-
+    if df is None:
+        df = pd.read_csv(file_path)
     # Remove the first frame because not relevant and sometime not feasible
     df = df[df["Time"] > 1]
-    df = df[df["Points:2"]==0.5] ## it's 2D, so the z coordinate is not relevant and duplicate the points
-
+    # df = df[df["Points:2"]==0.5] ## it's 2D, so the z coordinate is not relevant and duplicate the points
+    time_points = sorted(df["Time"].unique())
+    time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
+    df["Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
+    print(f"Normalized time to the greatest common divisor: {time_gcd}")
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 

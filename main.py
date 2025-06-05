@@ -32,11 +32,18 @@ def train_and_save(train_obj, device, config, save_dir, epochs, non_dim,
 
     os.makedirs(save_dir, exist_ok=True)
 
-    # Define time and space grids
-    end_T_sim = 150
+    loss_history_train, loss_history_test = train_obj.get_loss_history()
+    plot_tools.plot_loss_history({"train_loss": loss_history_train, "val_loss": loss_history_test}, save_dir=save_dir, additional_name="_intermediate_model")
 
-    x = np.linspace(-20, 30, 100)  # Spatial grid (x)
-    y = np.linspace(-20, 20, 100)  # Spatial grid (y)
+    # Define time and space grids
+    inp, _ = load_data.import_data(
+        file_path=config,
+        df=train_obj.data)
+    end_T_sim = int(np.max(inp[:, 0]))  # End time of simulation
+    x_min, x_max = int(np.min(inp[:, 1])), int(np.max(inp[:, 1]))  # Spatial bounds for x
+    y_min, y_max = int(np.min(inp[:, 2])), int(np.max(inp[:, 2]))  # Spatial bounds for y
+    x = np.linspace(x_min, x_max, 100)  # Spatial grid (x)
+    y = np.linspace(y_min, y_max, 100)  # Spatial grid (y)
     t = np.linspace(0, end_T_sim, end_T_sim)   # Time grid
 
     # Create meshgrid for plotting
@@ -52,11 +59,9 @@ def train_and_save(train_obj, device, config, save_dir, epochs, non_dim,
         non_dim=non_dim,
         forward_transform_input=forward_transform_input,
         inverse_transform_output=inverse_transform_output,
-        additional_name="_intermediate_model"
+        additional_name="_intermediate_model",
+        sample_z=1.
     )
-
-    loss_history_train, loss_history_test = train_obj.get_loss_history()
-    plot_tools.plot_loss_history({"train_loss": loss_history_train, "val_loss": loss_history_test}, save_dir=save_dir, additional_name="_intermediate_model")
 
     train_obj.save_model(
         path=save_dir,
@@ -72,6 +77,10 @@ def main(args):
 
     # Load data
     data_dir = os.path.join(args.data_path_file, args.data_name_file)
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"Data file {data_dir} does not exist. Please check the path.")
+    print(f"Loading data from {data_dir}")
+    df = pd.read_csv(data_dir)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -89,10 +98,9 @@ def main(args):
         inverse_transform_output = None
         Re = 1.
     else:
-        forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re = util_func.get_2D_non_dim(data_dir, args.nu)
+        forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re = util_func.get_ND_non_dim(data_dir, df, args.nu)
 
-
-    layer = [args.in_dim] + [args.features] * args.n_layers + [3]
+    layer = [args.in_dim] + [args.features] * args.n_layers + [args.out_dim]
     if args.model == 'mlp':
         PINN = model.PINN_linear(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'modified_mlp':
@@ -100,12 +108,13 @@ def main(args):
     elif args.model == 'saved':
         PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=3, RFF = args.RFF, device = device)
 
-    summary(PINN, input_size=(args.batch_size, 3), device=device)
+    summary(PINN, input_size=(args.batch_size, 4), device=device)
 
     train_data = train.Train_Loop_data(
         model=PINN,
         device=device,
         batch_size = args.batch_size,
+        data=df,
         nondim_input=forward_transform_input,
         nondim_output=forward_transform_output,
         nu = args.nu,
@@ -135,7 +144,8 @@ def main(args):
         train_nodata = train.Train_Loop_nodata(
         model=intermediate_model,
         device=device,
-        init_path="./data/cylinder.csv",
+        init_path=data_dir,
+        data = df,
         batch_size = args.batch_size,
         nu = args.nu,
         Re = Re,
@@ -162,13 +172,13 @@ def main(args):
 
     print("Finished training the final model.")
 
-    plot_tools.plot_difference_reference(final_model, device, 
-                                        data_path=data_dir, 
-                                        save_dir=save_dir, 
-                                        non_dim=non_dim,
-                                        forward_transform_input=forward_transform_input, 
-                                        forward_transform_output=forward_transform_output,
-                                        inverse_transform_input=inverse_transform_input,)
+    # plot_tools.plot_difference_reference(final_model, device, 
+    #                                     data_path=data_dir, 
+    #                                     save_dir=save_dir, 
+    #                                     non_dim=non_dim,
+    #                                     forward_transform_input=forward_transform_input, 
+    #                                     forward_transform_output=forward_transform_output,
+    #                                     inverse_transform_input=inverse_transform_input,)
 
 
 if __name__ == '__main__':
@@ -195,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--features', type=int, default=256, help='feature size of each layer')
     parser.add_argument('--RFF', type=bool, default=False, help='whether to use Random Fourier Features')
     parser.add_argument('--in_dim', type=int, default=3, help='size of model input, might not be 3 if using RFF')
+    parser.add_argument('--out_dim', type=int, default=3, help='size of model output, might not be 3 if using RFF')
     parser.add_argument('--saved_model', type=str, default=None, help='path to saved model')
     parser.add_argument('--train_prop', type=float, default=0.01, help='proportion of training data')
 

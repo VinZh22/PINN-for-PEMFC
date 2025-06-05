@@ -15,7 +15,7 @@ def timer_decorator(func):
     return wrapper
 
 
-def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, eval=False):
+def navier_stokes_2D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False, eval=False):
     """
     Time-dependent Navier-Stokes PDE residual.
     Lets suppose that nu = 0.01 is not changed (otherwise change util_func.py)
@@ -53,9 +53,9 @@ def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, eval=F
         momentum_x = du_dt + u * du_dx + v * du_dy + dp_dx - nu * (d2u_dx2 + d2u_dy2)
         momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - nu * (d2v_dx2 + d2v_dy2)
 
-    ## TEST de gradient-enhanced
-    d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
-    d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
+    if enhanced:
+        d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
+        d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
 
     # Detach gradients if eval
     if eval:
@@ -69,11 +69,22 @@ def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, eval=F
         continuity = continuity.detach()
         momentum_x = momentum_x.detach()
         momentum_y = momentum_y.detach()
-        d_momentum_x_dt = d_momentum_x_dt.detach()
-        d_momentum_x_dx = d_momentum_x_dx.detach()
-        d_momentum_x_dy = d_momentum_x_dy.detach()
+        if enhanced:
+            d_momentum_x_dt = d_momentum_x_dt.detach()
+            d_momentum_x_dx = d_momentum_x_dx.detach()
+            d_momentum_x_dy = d_momentum_x_dy.detach()
 
-    return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+    if enhanced:
+        return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+    else:
+        return continuity, momentum_x, momentum_y
+
+def navier_stokes(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enhanced = False, eval=False):
+    dim = txy_col.shape[1]
+    if dim == 3: ## time + 2D space
+        return navier_stokes_2D(txy_col, output, nu, Re, non_dim, enhanced, eval)
+    elif dim == 4: ## time + 3D space
+        raise NotImplementedError("3D Navier-Stokes is not implemented yet.")
 
 class Loss:
     ### An object that we're gonna reset at each epoch
@@ -122,12 +133,15 @@ class Loss:
         self.loss_total.zero_() 
 
     def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
-        continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy= navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, eval = eval)
-        tmp = (torch.mean(continuity**2) + 
-               torch.mean(momentum_x**2) + 
-               torch.mean(momentum_y**2) + 
-               enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2))
-               )
+        ## if enhanced False, in the navier stokes fct there shouldnt be the d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+        residuals = navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, enhanced = enhanced, eval = eval)
+        tmp = torch.sum([torch.mean(residual**2) for residual in residuals])
+        # continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy= navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, eval = eval)
+        # tmp = (torch.mean(continuity**2) + 
+        #        torch.mean(momentum_x**2) + 
+        #        torch.mean(momentum_y**2) + 
+        #        enhanced * (torch.mean(d_momentum_x_dt**2) + torch.mean(d_momentum_x_dx**2) + torch.mean(d_momentum_x_dy**2))
+        #        )
         return tmp.to(self.device)
 
     def pde_loss(self, txy_col, output, outflow_eq = True):

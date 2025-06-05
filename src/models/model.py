@@ -12,7 +12,7 @@ class PINN(nn.Module):
         Abstract class for PINN, NEED TO DECLARE a self.model in the child class
         activation: activation function to be used in the hidden layers
         """
-        assert input_length==3 or RFF # if there is no RFF, then the input is u,v,p
+        assert input_length==4 or RFF # if there is no RFF, then the input is u,v,p
         super(PINN, self).__init__()
         self.input_length = input_length
         self.output_length = output_length
@@ -20,7 +20,7 @@ class PINN(nn.Module):
 
         self.hard_constraint = hard_constraint
         self.RFF = RFF
-        self.register_buffer('kernel_rff', torch.normal(mean = 0., std = RFF_sigma, size = (input_length//2, 3)))
+        self.register_buffer('kernel_rff', torch.normal(mean = 0., std = RFF_sigma, size = (input_length//2, 4)))
         
     def forward(self, x):
         if self.RFF:

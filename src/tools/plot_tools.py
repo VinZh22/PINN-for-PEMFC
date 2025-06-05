@@ -129,7 +129,7 @@ def plot_loss_history(history, save_dir, additional_name = ""):
 
 def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, device, 
                    non_dim=True, forward_transform_input=None, inverse_transform_output = None,
-                   additional_name = ""):
+                   additional_name = "", sample_z = None):
     """
     Plot speed maps over time using the trained model.
     Parameters:
@@ -150,6 +150,8 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
         Whether to apply non-dimensionalization
     forward_transform_input : function, optional
         Function to apply non-dimensionalization to input data
+    sample_z : float, optional
+        Sample z-coordinate for 3D data (if applicable)
     """
     # Initialize lists to store speed (magnitude) at each time step
     speed_maps = []
@@ -157,6 +159,8 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     for ti in t:
         # Create input tensor: (t, x, y) for all spatial points at time ti
         xy = np.vstack((X.flatten(), Y.flatten())).T
+        if sample_z is not None:
+            xy = np.hstack((xy, (np.full((len(xy)), sample_z).reshape(-1, 1))))
         txy = np.hstack((np.full((len(xy)), ti).reshape(-1, 1), xy))
         if non_dim:
             txy = forward_transform_input(txy)
@@ -167,16 +171,14 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
             uvp_pred = model(txy).cpu().numpy()
         if non_dim:
             uvp_pred = inverse_transform_output(uvp_pred)
-        u_pred = uvp_pred[:, 0].reshape(X.shape)
-        v_pred = uvp_pred[:, 1].reshape(X.shape)
 
-        speed = np.sqrt(u_pred**2 + v_pred**2)
+        speed = np.sqrt(np.sum(uvp_pred[:,:-1], axis=1)**2).reshape(X.shape)
         speed_maps.append(speed)
 
     # Set up the figure
     fig, ax = plt.subplots(figsize=(8, 6))
     cax = ax.contourf(X, Y, speed_maps[0], levels=20, cmap='viridis')
-    circle = plt.Circle((0, 0), .5, color='white', fill=True, linewidth=2) ## ONE HYPERPARAMETER TO ALLOW CHANGE LATER
+    # circle = plt.Circle((0, 0), .5, color='white', fill=True, linewidth=2) ## ONE HYPERPARAMETER TO ALLOW CHANGE LATER
     plt.colorbar(cax, label='Speed (m/s)')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
@@ -185,7 +187,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     def update(frame):
         ax.clear()
         cax = ax.contourf(X, Y, speed_maps[frame], levels=20, cmap='viridis')
-        ax.add_artist(circle)
+        # ax.add_artist(circle)
         ax.set_title(f'Speed Map at t = {t[frame]:.2f}s')
         return cax
 
@@ -206,6 +208,13 @@ def plot_difference_reference(model, device, data_path, save_dir,
 
     X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True).to(device)
     Y_tensor = torch.tensor(Y, dtype=torch.float32, requires_grad=True).to(device)
+
+    loader = DataLoader(
+        [X_tensor, Y_tensor],
+        batch_size=1024,  # Adjust batch size as needed
+        shuffle=False,
+    )
+    pdb.set_trace()
     with torch.no_grad():
         uvp_pred = model(X_tensor)
 

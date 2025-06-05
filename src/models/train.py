@@ -77,7 +77,7 @@ class Train_Loop(ABC):
 
         return txy_col, output_data, xyt_col_test, output_data_test
 
-    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, additional_name = ""):
+    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, train_data_shuffle = True,  additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
 
@@ -88,12 +88,30 @@ class Train_Loop(ABC):
         device = self.device
         batch_size = self.batch_size
         self.model.to(device)
-
         # Load data
         txy_col, output_data, xyt_col_test, output_data_test = self.set_data(config, train_prop)
 
-        # Shuffle data for batching
-        num_batches = txy_col.size(0) // batch_size + (txy_col.size(0) % batch_size != 0)
+        # If data shuffle, prepare the parameters
+        if train_data_shuffle:
+            # Shuffle the data
+            size_data_epoch = 2*self.batch_size
+
+            print(f"Shuffling data {size_data_epoch} through {txy_col.size(0)}")
+
+            total_data_input = txy_col.clone()
+            total_data_output = output_data.clone()
+
+            idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+            txy_col = total_data_input[idx]
+            output_data = total_data_output[idx]
+            txy_col = txy_col.detach().requires_grad_(True)
+            output_data = output_data.detach()
+
+        else:
+            size_data_epoch = txy_col.size(0)
+
+        # Prepare for batching
+        num_batches = size_data_epoch // batch_size + (size_data_epoch % batch_size != 0)
         print("num_batches: ", num_batches, "batch_size: ", batch_size)
         
         ## cte for optim and scheduler (not hyper parameters for now)
@@ -108,6 +126,7 @@ class Train_Loop(ABC):
         loss_log: list[dict[str, float]] = []
 
         for epoch in progress_bar:
+            # pdb.set_trace()
             optimizer.zero_grad()
             if epoch % self.log_interval == 0 or epoch == epochs - 1:
                 self.add_log_entry(loss_log, epoch, num_batches)
@@ -135,6 +154,14 @@ class Train_Loop(ABC):
                 self.update_progress_bar(progress_bar, loss_test, num_batches)
                 self.loss_history_test.append((epoch,float(loss_test)))
                 self.save_log(save_path, loss_log, additional_name)
+
+                ## Let's shuffle another time the data
+                if train_data_shuffle:
+                    idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+                    txy_col = total_data_input[idx]
+                    output_data = total_data_output[idx]
+                    txy_col = txy_col.detach().requires_grad_(True)
+                    output_data = output_data.detach()
         
 
         self.loss_history_test = np.array(self.loss_history_test)
@@ -234,10 +261,11 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model, device, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
+    def __init__(self, model, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
         super().__init__(model, device,
                          [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval,
                          nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
+        self.data = data
 
     def compute_loss(self, inputs, outputs, targets):
         """
@@ -258,11 +286,11 @@ class Train_Loop_data(Train_Loop):
     def evaluate(self, test_loader):
         return evaluate_model(self.model, test_loader, self.device, self.batch_size)
     
-    def import_data(self, config, nondim_input = None, nondim_output = None):
+    def import_data(self, config:tuple, nondim_input = None, nondim_output = None):
         """
         Import data from a CSV file and apply non-dimensionalization if needed.
         Parameters:
-        - config: Path to the CSV file.
+        - config: Path to the CSV file and a DataFrame containing the data.
         - nondim_input: Function to apply non-dimensionalization to input data.
         - nondim_output: Function to apply non-dimensionalization to output data.
         Returns:
@@ -270,7 +298,7 @@ class Train_Loop_data(Train_Loop):
         - Y: Non-dimensionalized output data.
         """
         file_path = config
-        return import_data(file_path, nondim_input, nondim_output)
+        return import_data(file_path, self.data, nondim_input, nondim_output)
     
     def update_progress_bar(self, progress_bar, loss_test, num_batches):
         progress_bar.set_postfix(
@@ -282,15 +310,15 @@ class Train_Loop_data(Train_Loop):
         )
 
 class Train_Loop_nodata(Train_Loop):
-    def __init__(self, model, device, init_path, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):
+    def __init__(self, model, device, init_path, data, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):
         super().__init__(model, device, 
                          [False, True, True, True], [0., 0., 1., 0.],
                          nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, nondim_input=nondim_input, nondim_output=nondim_output,)
         
         ## TO DO along with compute_loss for BC
         self.set_condition_data()
-        
-        X,Y = import_data(init_path, nondim_input, nondim_output)
+        self.data = data
+        X,Y = import_data(init_path, data) ## we don't put non-dim function because we don't need to apply it to the whole data
         if nondim_input is not None:
             indices = X[:,0] == nondim_input([1,0,0])[0] # get the indices of the points where t = 1
         else:
