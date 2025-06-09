@@ -23,21 +23,14 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     input,output = import_data(data_path, df=df)
     
     pos_mean = np.mean(input[:,1:], axis=0)
-    x_mean = np.mean(input[:,1])
-    y_mean = np.mean(input[:,2])
     pos_std = np.std(input[:,1:], axis=0)
-    x_std = np.std(input[:,1])
-    y_std = np.std(input[:,2])
-    L = np.sqrt(np.sum(pos_mean**2)) ## L is the length scale, which is the diagonal of the cylinder
     T_mean = np.mean(input[:,0])
+    speed_mean = np.mean(output[:,:-1], axis=0)
     speed_std = np.std(output[:,:-1], axis=0)
-    U_std = np.std(output[:,0])
-    V_std = np.std(output[:,1])
 
+    L = np.sqrt(np.sum(pos_std**2)) ## L is the length scale, which is the diagonal of the cylinder
     U_hat = np.sqrt(np.sum(speed_std**2))  # Non-dimensional velocity scale
 
-    # L = x_std
-    # U_hat = U_std
 
     T_hat = L / U_hat
 
@@ -53,7 +46,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         """
         t,position = X[0], X[1:]
         # Non-dimensionalize velocity and pressure
-        position = (position - pos_mean) / pos_std
+        position = (position - pos_mean) / L
         t = (t - T_mean) / T_hat
 
         return np.array([t] + list(position))
@@ -66,7 +59,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
 
         speed,p = y[:-1], y[-1]
         # Non-dimensionalize velocity and pressure
-        speed = (speed - speed_std) / U_hat
+        speed = (speed - speed_mean) / U_hat
         p = p / U_hat**2 ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
         return np.array(list(speed) + [p])
     forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
@@ -76,7 +69,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         Inverse transform the input data to original scale.
         """
         t, position = X[0], X[1:]
-        position = position * pos_std + pos_mean
+        position = position * L + pos_mean
         t = t * T_hat + T_mean
 
         return np.array([t] + list(position))
@@ -87,7 +80,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         Inverse transform the output data to original scale.
         """
         speed, p = y[:-1], y[-1]
-        speed = speed * U_hat + speed_std
+        speed = speed * U_hat + speed_mean
         p = p * U_hat**2
 
         return np.array(list(speed) + [p])

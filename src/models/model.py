@@ -7,20 +7,21 @@ import pdb
 
 
 class PINN(nn.Module):
-    def __init__(self, input_length, output_length, device, RFF = False, RFF_sigma = 1., hard_constraint = None):
+    def __init__(self, input_length, output_length, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None):
         """
         Abstract class for PINN, NEED TO DECLARE a self.model in the child class
         activation: activation function to be used in the hidden layers
         """
-        assert input_length==4 or RFF # if there is no RFF, then the input is u,v,p
+        assert input_length==data_input or (RFF and input_length%2==0) # if there is no RFF, then the input is u,v,p
         super(PINN, self).__init__()
         self.input_length = input_length
         self.output_length = output_length
+        self.data_input = data_input
         self.device = device
 
         self.hard_constraint = hard_constraint
         self.RFF = RFF
-        self.register_buffer('kernel_rff', torch.normal(mean = 0., std = RFF_sigma, size = (input_length//2, 4)))
+        self.register_buffer('kernel_rff', torch.normal(mean = 0., std = RFF_sigma, size = (input_length//2, data_input)))
         
     def forward(self, x):
         if self.RFF:
@@ -38,12 +39,12 @@ class PINN(nn.Module):
         return y
 
 class PINN_linear(PINN):
-    def __init__(self, layers_num, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh):
+    def __init__(self, layers_num, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
-        super(PINN_linear, self).__init__(layers_num[0], layers_num[-1], device, RFF, RFF_sigma, hard_constraint)
+        super(PINN_linear, self).__init__(layers_num[0], layers_num[-1], data_input, device, RFF, RFF_sigma, hard_constraint)
         self.layers_num = layers_num
 
         layers = []
@@ -55,12 +56,12 @@ class PINN_linear(PINN):
         self.model = nn.Sequential(*layers[:-1])  # Exclude the last activation function
 
 class PINN_mod_MLP(PINN):
-    def __init__(self, layers_num, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+    def __init__(self, layers_num, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
-        super(PINN_mod_MLP, self).__init__(layers_num[0], layers_num[-1], device, RFF, RFF_sigma, hard_constraint)
+        super(PINN_mod_MLP, self).__init__(layers_num[0], layers_num[-1], data_input, device, RFF, RFF_sigma, hard_constraint)
         self.layers_num = layers_num
 
         self.model = ModifiedMLP(layers_num=layers_num, device = device, activation=activation)
@@ -93,13 +94,13 @@ class ModifiedMLP(nn.Module):
         return x
 
 class PINN_import(PINN):
-    def __init__(self, model_path, input_len, device, output_len, RFF = False, RFF_sigma = 1., hard_constraint = None,):
+    def __init__(self, model_path, input_len, output_len, data_input, device,RFF = False, RFF_sigma = 1., hard_constraint = None,):
         """
         layers: list of integers representing the number of neurons in each layer
         activation: activation function to be used in the hidden layers
         """
 
-        super(PINN_import, self).__init__(input_len, output_len, device, RFF, RFF_sigma, hard_constraint)
+        super(PINN_import, self).__init__(input_len, output_len, data_input, device, RFF, RFF_sigma, hard_constraint)
         self.load_model(model_path)
 
     def load_model(self, model_path):

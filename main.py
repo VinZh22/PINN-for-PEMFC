@@ -19,7 +19,7 @@ from datetime import datetime
 
 def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epochs, non_dim,
                    forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output,
-                   additional_name = "", train_prop = 0.01):
+                   train_prop, data_MC, additional_name = ""):
     trained_model = train_obj.train_pinn(
         config=config,
         save_path=save_dir,
@@ -28,6 +28,7 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
         epochs=epochs,
         adapting_weight=True,
         additional_name=additional_name,
+        train_data_shuffle=data_MC,
     )
 
     os.makedirs(save_dir, exist_ok=True)
@@ -48,6 +49,13 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
     # Create meshgrid for plotting
     X, Y = np.meshgrid(x, y)
 
+    sampled_z = None
+    if inp.shape[1] == 4:
+        sampled_z = np.unique(inp[:, 3])
+        if len(sampled_z) > 1:
+            raise ValueError("The data contains multiple z values, which is not supported for 2D plotting.")
+        sampled_z = sampled_z[0]
+
     plot_tools.plot_speed_map(
         model=trained_model,
         X=X,
@@ -59,7 +67,7 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
         forward_transform_input=forward_transform_input,
         inverse_transform_output=inverse_transform_output,
         additional_name="_intermediate_model",
-        sample_z=1.
+        sample_z=sampled_z,
     )
 
     train_obj.save_model(
@@ -89,6 +97,10 @@ def main(args):
     print(f"Loading data from {data_dir}")
     df = pd.read_csv(data_dir)
 
+    if args.force2D:
+        print("Forcing the data to be 2D by removing the z dimension.")
+        df = force_2D(df)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -107,15 +119,20 @@ def main(args):
     else:
         forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re = util_func.get_ND_non_dim(data_dir, df, args.nu)
 
+    if args.force2D:
+        data_input = 3
+    else:
+        data_input = 4
+
     layer = [args.in_dim] + [args.features] * args.n_layers + [args.out_dim]
     if args.model == 'mlp':
-        PINN = model.PINN_linear(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
+        PINN = model.PINN_linear(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'modified_mlp':
-        PINN = model.PINN_mod_MLP(layer, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
+        PINN = model.PINN_mod_MLP(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'saved':
-        PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=3, RFF = args.RFF, device = device)
+        PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device)
 
-    summary(PINN, input_size=(args.batch_size, 4), device=device)
+    summary(PINN, input_size=(args.batch_size, data_input), device=device)
 
     train_data = train.Train_Loop_data(
         model=PINN,
@@ -128,6 +145,7 @@ def main(args):
         Re = Re,
         refresh_bar=args.update_iter,
         log_interval=args.log_iter,
+        sample_interval=args.shuffle_iter,
     )
 
     intermediate_model = train_and_save(
@@ -143,6 +161,7 @@ def main(args):
         inverse_transform_output=inverse_transform_output,
         additional_name="_intermediate_model",
         train_prop=args.train_prop,
+        data_MC=args.data_MC,
     )
 
     if args.pde_refine:
@@ -171,7 +190,8 @@ def main(args):
             forward_transform_output=forward_transform_output,
             inverse_transform_input=inverse_transform_input,
             inverse_transform_output=inverse_transform_output,
-            train_prop = 0.6
+            train_prop = 0.6,
+            data_MC=args.data_MC,
         )
     
     else:
@@ -200,7 +220,7 @@ if __name__ == '__main__':
     # training settings
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     # parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to 2*batch_size')
+    parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to 4*batch_size')
     parser.add_argument('--non_dim', type=bool, default=False, help='whether to use non-dimensionalization')
     parser.add_argument('--nu', type=float, default=0.01, help='kinematic viscosity')
     parser.add_argument('--batch_size', type=int, default=8192, help='batch size')
@@ -221,6 +241,7 @@ if __name__ == '__main__':
     # log settings
     parser.add_argument('--log_iter', type=int, default=50, help='print log every...')
     parser.add_argument('--update_iter', type=int, default=500, help='update progress bar every...')
+    parser.add_argument('--shuffle_iter', type=int, default=4000, help='sample data every... in the case of MC sampling')
 
     args = parser.parse_args()
 

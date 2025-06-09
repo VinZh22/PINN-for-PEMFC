@@ -55,11 +55,11 @@ def navier_stokes_2D(txy_col, output, nu = 0.01, Re = 100., non_dim = False, enh
     momentum_y = dv_dt + u * dv_dx + v * dv_dy + dp_dy - coeff * (d2v_dx2 + d2v_dy2)
 
     if enhanced:
-        d_momentum_x = torch.autograd.grad(momentum_x, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
-        d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy = d_momentum_x[:, 0], d_momentum_x[:, 1], d_momentum_x[:, 2]
+        d_continuity = torch.autograd.grad(continuity, txy_col, grad_outputs=torch.ones_like(momentum_x), create_graph=True)[0]
+        d_continuity_dt, d_continuity_dx, d_continuity_dy = d_continuity[:, 0], d_continuity[:, 1], d_continuity[:, 2]
 
     if enhanced:
-        return continuity, momentum_x, momentum_y, d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+        return continuity, momentum_x, momentum_y, d_continuity_dt, d_continuity_dx, d_continuity_dy
     else:
         return continuity, momentum_x, momentum_y
 
@@ -179,13 +179,14 @@ class Loss:
 
     def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
         ## if enhanced False, in the navier stokes fct there shouldnt be the d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
+        pdb.set_trace()
         residuals = navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, enhanced = enhanced, eval = eval)
         tmp = torch.sum(torch.mean(torch.vstack(residuals)**2,dim=1))
         return tmp.to(self.device)
 
-    def pde_loss(self, txy_col, output, outflow_eq = True):
+    def pde_loss(self, txy_col, output, enhanced_gradient):
         assert self.loss_pde_tmp==0 ## otherwise we need to call new_batch before it 
-        tmp = self.compute_pde_loss(txy_col, output, outflow_eq)
+        tmp = self.compute_pde_loss(txy_col, output, enhanced_gradient)
         self.loss_pde += tmp
         self.loss_pde_tmp = tmp
         return tmp

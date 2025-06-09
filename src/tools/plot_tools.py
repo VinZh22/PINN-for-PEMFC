@@ -115,9 +115,11 @@ def plot_loss_history(history, save_dir, additional_name = ""):
     """
     plt.figure(figsize=(10, 6))
     for key, val in history.items():
-        if val.shape[0] == 2:  # Check if val_loss has two columns (epoch, loss)
+        if len(val.shape) == 1:
+            plt.plot(val, label=key)
+        elif val.shape[1] == 2:
             plt.plot(val[:, 0], val[:, 1], label=key)
-        else:
+        else: ## the case of shape (n, 1) and not (n)
             plt.plot(val, label=key)
     # plt.plot(history['train_loss'], label='Train Loss')
     # plt.plot(history['val_loss'][:,0], history['val_loss'][:,1], label='Validation Loss')
