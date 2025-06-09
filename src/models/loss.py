@@ -179,7 +179,6 @@ class Loss:
 
     def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
         ## if enhanced False, in the navier stokes fct there shouldnt be the d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
-        pdb.set_trace()
         residuals = navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, enhanced = enhanced, eval = eval)
         tmp = torch.sum(torch.mean(torch.vstack(residuals)**2,dim=1))
         return tmp.to(self.device)

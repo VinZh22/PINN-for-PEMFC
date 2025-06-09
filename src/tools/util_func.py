@@ -25,7 +25,6 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     pos_mean = np.mean(input[:,1:], axis=0)
     pos_std = np.std(input[:,1:], axis=0)
     T_mean = np.mean(input[:,0])
-    speed_mean = np.mean(output[:,:-1], axis=0)
     speed_std = np.std(output[:,:-1], axis=0)
 
     L = np.sqrt(np.sum(pos_std**2)) ## L is the length scale, which is the diagonal of the cylinder
@@ -59,7 +58,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
 
         speed,p = y[:-1], y[-1]
         # Non-dimensionalize velocity and pressure
-        speed = (speed - speed_mean) / U_hat
+        speed = speed / U_hat
         p = p / U_hat**2 ## non-dimension is either U^2 or nu/T, in our case the first one is more suitable
         return np.array(list(speed) + [p])
     forward_transform_output = np.vectorize(forward_transform_output, signature='(n)->(n)')
@@ -80,7 +79,7 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         Inverse transform the output data to original scale.
         """
         speed, p = y[:-1], y[-1]
-        speed = speed * U_hat + speed_mean
+        speed = speed * U_hat
         p = p * U_hat**2
 
         return np.array(list(speed) + [p])
