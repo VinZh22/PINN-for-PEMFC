@@ -29,7 +29,7 @@ class Train_Loop(ABC):
     def __init__(self, model:model.PINN, device, need_loss, lambda_list, 
                  nu, Re, alpha, batch_size, data:pd.DataFrame,
                  nondim_input = None, nondim_output = None, 
-                 refresh_bar = 500, log_interval = 50):
+                 refresh_bar = 500, log_interval = 50, sample_interval = 1000):
 
 
         self.model = model
@@ -40,6 +40,7 @@ class Train_Loop(ABC):
         self.alpha = alpha
         self.refresh_bar = refresh_bar
         self.log_interval = log_interval
+        self.sample_interval = sample_interval
         self.nondim_input = nondim_input
         self.nondim_output = nondim_output
         self.batch_size = batch_size 
@@ -78,7 +79,7 @@ class Train_Loop(ABC):
 
         return txy_col, output_data, xyt_col_test, output_data_test
 
-    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, train_data_shuffle = True,  additional_name = ""):
+    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, train_data_shuffle = False,  additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
 
@@ -95,7 +96,7 @@ class Train_Loop(ABC):
         # If data shuffle, prepare the parameters
         if train_data_shuffle:
             # Shuffle the data
-            size_data_epoch = 2*self.batch_size
+            size_data_epoch = 4*self.batch_size
 
             print(f"Shuffling data {size_data_epoch} through {txy_col.size(0)}")
 
@@ -149,7 +150,7 @@ class Train_Loop(ABC):
                 optimizer.step()
                 scheduler.step()
             self.loss_history_train.append(self.loss_obj.get_loss_pde().item() / num_batches)
-            
+
             if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                 test_loader = batch_data(xyt_col_test, output_data_test, batch_size, shuffle=False)
                 loss_test = self.evaluate(test_loader)  # Test loss computation using known data
@@ -157,6 +158,7 @@ class Train_Loop(ABC):
                 self.loss_history_test.append((epoch,float(loss_test)))
                 self.save_log(save_path, loss_log, additional_name)
 
+            if epoch % self.sample_interval == 0:
                 ## Let's shuffle another time the data
                 if train_data_shuffle:
                     idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
@@ -263,9 +265,9 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model:model.PINN, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50):
+    def __init__(self, model:model.PINN, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000):
         super().__init__(model, device,
-                         [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval,
+                         [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval, sample_interval=sample_interval,
                          nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output,)
 
     def compute_loss(self, inputs, outputs, targets):
@@ -281,7 +283,7 @@ class Train_Loop_data(Train_Loop):
         - loss: The computed loss.
         """
         self.loss_obj.data_loss(outputs, targets)
-        self.loss_obj.pde_loss(inputs, outputs, outflow_eq=False)
+        self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
         self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):
@@ -330,7 +332,7 @@ class Train_Loop_nodata(Train_Loop):
     
     def compute_loss(self, inputs, outputs, targets = None):
         # assert targets is None, "Targets should be None for no data training"
-        self.loss_obj.pde_loss(inputs, outputs, outflow_eq=False)
+        self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False)
 
         ## TO DO : make it cleaner and integrated in the framework
         ## FOR NOW just use predefined boundary conditions
@@ -356,7 +358,7 @@ class Train_Loop_nodata(Train_Loop):
         for inputs, targets in test_loader:
             inputs = inputs.to(self.device)
             pred_test = self.model(inputs) # no torch.no_grad() because we need to compute the loss
-            loss_test += self.loss_obj.compute_pde_loss(inputs, pred_test, eval=True, outflow_eq=False) * inputs.shape[0]
+            loss_test += self.loss_obj.compute_pde_loss(inputs, pred_test, eval=True, enhanced_gradient=False) * inputs.shape[0]
             size_test += inputs.shape[0]
         loss_test /= size_test
         return loss_test

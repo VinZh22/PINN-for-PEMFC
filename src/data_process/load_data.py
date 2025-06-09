@@ -55,7 +55,7 @@ def convert_to_numpy(data, nondim_input = None, nondim_output = None):
         Y_data = nondim_output(Y_data)
     return X_data, Y_data
 
-@timer_decorator
+# @timer_decorator
 def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nondim_output = None):
     """
     Import data from a CSV file and convert it to numpy arrays.
@@ -82,7 +82,7 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
     time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
     if time_gcd != 1:
         df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
-    print(f"Normalized time to the greatest common divisor: {time_gcd}")
+        print(f"Normalized time to the greatest common divisor: {time_gcd}")
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 
