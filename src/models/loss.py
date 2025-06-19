@@ -155,18 +155,17 @@ class Loss:
         self.need_initial = need_loss[3]
 
         ### Losses for the epoch (so no reset in between batches)
-        self.loss_pde = torch.Tensor([0.]).to(self.device)
-        self.loss_data = torch.Tensor([0.]).to(self.device)
-        self.loss_boundary = torch.Tensor([0.]).to(self.device)
-        self.loss_initial = torch.Tensor([0.]).to(self.device)
-        self.loss_epoch = torch.Tensor([0.]).to(self.device)
+        self.loss_pde = 0.
+        self.loss_data = 0.
+        self.loss_boundary = 0.
+        self.loss_initial = 0.
+        self.loss_epoch = 0.
 
         # for ONE batch
         self.loss_pde_tmp = torch.Tensor([0.]).to(self.device)
         self.loss_data_tmp = torch.Tensor([0.]).to(self.device)
         self.loss_boundary_tmp = torch.Tensor([0.]).to(self.device)
         self.loss_initial_tmp = torch.Tensor([0.]).to(self.device)
-        self.loss_epoch_tmp = torch.Tensor([0.]).to(self.device)
         self.loss_total = torch.Tensor([0.]).to(self.device) 
 
     def new_batch(self):
@@ -174,10 +173,9 @@ class Loss:
         self.loss_data_tmp.zero_()
         self.loss_boundary_tmp.zero_()
         self.loss_initial_tmp.zero_()
-        self.loss_epoch_tmp.zero_()
         self.loss_total.zero_() 
 
-    def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,):
+    def compute_pde_loss(self, txy_col, output, enhanced = False, eval = False,) -> torch.Tensor:
         ## if enhanced False, in the navier stokes fct there shouldnt be the d_momentum_x_dt, d_momentum_x_dx, d_momentum_x_dy
         residuals = navier_stokes(txy_col, output, self.nu, self.Re, self.non_dim, enhanced = enhanced, eval = eval)
         tmp = torch.sum(torch.mean(torch.vstack(residuals)**2,dim=1))
@@ -186,11 +184,11 @@ class Loss:
     def pde_loss(self, txy_col, output, enhanced_gradient):
         assert self.loss_pde_tmp==0 ## otherwise we need to call new_batch before it 
         tmp = self.compute_pde_loss(txy_col, output, enhanced_gradient)
-        self.loss_pde += tmp
+        self.loss_pde += tmp.item()
         self.loss_pde_tmp = tmp
         return tmp
     
-    def compute_data_loss(self, output, target):
+    def compute_data_loss(self, output, target) -> torch.Tensor:
         tmp = nn.MSELoss()(output, target).to(self.device)
         return tmp
 
@@ -198,11 +196,11 @@ class Loss:
         assert self.loss_data_tmp==0 ## otherwise we need to call new_batch before it
 
         tmp = self.compute_data_loss(output, target)
-        self.loss_data += tmp
+        self.loss_data += tmp.item()
         self.loss_data_tmp = tmp
         return tmp
     
-    def compute_boundary_loss(self, output, boundary):
+    def compute_boundary_loss(self, output, boundary) -> torch.Tensor:
         """
         output: [N, 3] tensor of outputs at those points
         boundary: [N, 3] tensor of boundary conditions at those points
@@ -215,11 +213,11 @@ class Loss:
     def boundary_loss(self, output, boundary):
         assert self.loss_boundary_tmp==0
         tmp = self.compute_boundary_loss(output, boundary)
-        self.loss_boundary += tmp
+        self.loss_boundary += tmp.item()
         self.loss_boundary_tmp = tmp
         return tmp
     
-    def compute_initial_loss(self, txy_col, output, target):
+    def compute_initial_loss(self, txy_col, output, target) -> torch.Tensor:
         """
         txy_col: [N, 3] tensor of points in the domain
         output: [N, 3] tensor of outputs at those points
@@ -231,31 +229,18 @@ class Loss:
     def initial_loss(self, txy_col, output, target):
         assert self.loss_initial_tmp==0
         tmp = self.compute_initial_loss(txy_col, output, target)
-        self.loss_initial += tmp
+        self.loss_initial += tmp.item()
         self.loss_initial_tmp = tmp
         return tmp
 
-    def get_total_loss(self, pde, data = 0., bc = 0., ic = 0.):
-        """
-        We should at least have the loss for pde residual (the whole point of PINN)
-        """
-        assert self.loss_total==0 ## otherwise we need to call new_batch before it
 
-        self.loss_total += (self.lambda_data * data +
-                           self.lambda_pde * pde +
-                           self.lambda_boundary * bc +
-                           self.lambda_initial * ic)
-        
-        self.loss_epoch += self.loss_total
-        return self.loss_total
-
-    def get_total_loss(self):
+    def get_total_loss(self) -> torch.Tensor:
         assert self.loss_total==0 ## otherwise we need to call new_batch before it
         self.loss_total = (self.lambda_data * self.loss_data_tmp +
                            self.lambda_pde * self.loss_pde_tmp +
                            self.lambda_boundary * self.loss_boundary_tmp +
                            self.lambda_initial * self.loss_initial_tmp)
-        self.loss_epoch += self.loss_total
+        self.loss_epoch += self.loss_total.item()
         return self.loss_total
     
     def get_loss_epoch(self):
@@ -273,15 +258,15 @@ class Loss:
     def get_loss_initial(self):
         return self.loss_initial
 
-    def backward(self, retain = True):
+    def backward(self, retain):
         self.loss_total.backward(retain_graph=retain)
     
     def reset_losses(self):
-        self.loss_pde.zero_()
-        self.loss_data.zero_()
-        self.loss_boundary.zero_()
-        self.loss_initial.zero_()
-        self.loss_epoch.zero_()
+        self.loss_pde = 0.
+        self.loss_data = 0.
+        self.loss_boundary = 0.
+        self.loss_initial = 0.
+        self.loss_epoch = 0.
     
     def set_lambda(self, lambda_data = 1., lambda_pde = 1., lambda_boundary = 1., lambda_initial = 1.):
         """

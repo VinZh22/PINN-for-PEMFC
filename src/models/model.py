@@ -93,6 +93,91 @@ class ModifiedMLP(nn.Module):
         x = self.layers[-1](x)
         return x
 
+class DM_PINN(PINN):
+    def __init__(self, layers_num, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh):
+        """
+        layers: list of integers representing the number of neurons in each layer
+        activation: activation function to be used in the hidden layers
+        """
+        super(DM_PINN, self).__init__(layers_num[0], layers_num[-1], data_input, device, RFF, RFF_sigma, hard_constraint)
+        self.layers_num = layers_num
+
+        self.model = DM_MLP(layers_num=layers_num, device=device, activation=activation)
+
+class DM_MLP(nn.Module):
+    def __init__(self, layers_num, device, activation = nn.Tanh):
+        super().__init__()
+        self.device = device
+
+        self.layers = []
+        for i in range(1, len(layers_num) - 1):
+            self.layers.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
+            nn.init.xavier_uniform_(self.layers[-1][0].weight)
+        self.layers.append(nn.Linear(layers_num[-2], layers_num[-1]).to(device))
+        nn.init.xavier_uniform_(self.layers[-1].weight)
+        self.layers = nn.ModuleList(self.layers)
+        
+    def forward(self, x):
+        x = self.layers[0](x)
+        prod = torch.ones_like(x)
+        for layer in self.layers[1:-1]:
+            x = layer(x) * prod
+            prod = x
+        
+        x = self.layers[-1](x)
+        return x
+
+class PINN_PirateNet(PINN): ## We will modify a bit compared to the paper, with less internal computation in a layer while retaining the core idea
+    def __init__(self, layers_num, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):
+        """
+        layers: list of integers representing the number of neurons in each layer
+        activation: activation function to be used in the hidden layers
+        """
+        super(PINN_PirateNet, self).__init__(layers_num[0], layers_num[-1], data_input, device, RFF, RFF_sigma, hard_constraint)
+        self.layers_num = layers_num
+
+        self.model = PirateNet(layers_num=layers_num, device = device, activation=activation)
+class PirateNet(nn.Module):
+    def __init__(self, layers_num, device, activation = nn.Tanh):
+        super().__init__()
+        self.device = device
+        self.layers_num = layers_num
+
+        self.U = nn.Sequential(nn.Linear(layers_num[0], layers_num[1]), activation()).to(device)
+        self.V = nn.Sequential(nn.Linear(layers_num[0], layers_num[1]), activation()).to(device)
+        nn.init.xavier_uniform_(self.U[0].weight)
+        nn.init.xavier_uniform_(self.V[0].weight)
+
+        self.layers1 = []
+        self.layers2 = []
+        self.layers3 = []
+        for i in range(1,len(layers_num) - 1):
+            self.layers1.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
+            nn.init.xavier_uniform_(self.layers1[-1][0].weight)
+            self.layers2.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
+            nn.init.xavier_uniform_(self.layers2[-1][0].weight)
+
+        self.layers1 = nn.ModuleList(self.layers1)
+        self.layers2 = nn.ModuleList(self.layers2)
+
+        self.alphas = nn.Parameter(torch.zeros(len(layers_num)-1, device=device))  # learnable parameters for the alphas
+        self.last_layer = nn.Linear(layers_num[-2], layers_num[-1]).to(device)
+        nn.init.xavier_uniform_(self.last_layer.weight)
+
+    def forward(self, x):
+        # pdb.set_trace()
+        U = self.U(x)
+        V = self.V(x)
+        n = len(self.layers1)
+        for layer_num in range(n):
+            passed = self.layers1[layer_num](x)
+            passed = (1-passed)*U + passed*V
+            passed = self.layers2[layer_num](passed)
+            x = (1-self.alphas[layer_num]) * x + self.alphas[layer_num] * passed
+        
+        x = self.last_layer(x)
+        return x
+
 class PINN_import(PINN):
     def __init__(self, model_path, input_len, output_len, data_input, device,RFF = False, RFF_sigma = 1., hard_constraint = None,):
         """
@@ -207,7 +292,6 @@ class LORA(nn.Module):
         # pdb.set_trace()
         pred = torch.stack(pred, dim = 0).T
         return pred[0] if len(pred) == 1 else pred
-
 
 class PINN_time_windows(nn.Module):
     def __init__(self, layers_num, T_max, T_min = 0, num_windows = 10, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):

@@ -19,7 +19,7 @@ from datetime import datetime
 
 def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epochs, non_dim,
                    forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output,
-                   train_prop, data_MC, additional_name = ""):
+                   train_prop, data_MC, data_shuffle_size, sample_mode = "random", additional_name = ""):
     trained_model = train_obj.train_pinn(
         config=config,
         save_path=save_dir,
@@ -29,6 +29,8 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
         adapting_weight=True,
         additional_name=additional_name,
         train_data_shuffle=data_MC,
+        data_shuffle_size= data_shuffle_size,
+        sample_mode=sample_mode
     )
 
     os.makedirs(save_dir, exist_ok=True)
@@ -52,8 +54,6 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
     sampled_z = None
     if inp.shape[1] == 4:
         sampled_z = np.unique(inp[:, 3])
-        if len(sampled_z) > 1:
-            raise ValueError("The data contains multiple z values, which is not supported for 2D plotting.")
         sampled_z = sampled_z[0]
 
     plot_tools.plot_speed_map(
@@ -131,6 +131,10 @@ def main(args):
         PINN = model.PINN_mod_MLP(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'saved':
         PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device)
+    elif args.model == 'dm_mlp':
+        PINN = model.DM_PINN(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
+    elif args.model == 'pirate_mlp':
+        PINN = model.PINN_PirateNet(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
 
     summary(PINN, input_size=(args.batch_size, data_input), device=device)
 
@@ -162,6 +166,8 @@ def main(args):
         additional_name="_intermediate_model",
         train_prop=args.train_prop,
         data_MC=args.data_MC,
+        data_shuffle_size=args.data_MC_n,
+        sample_mode=args.data_MC_sample_mode
     )
 
     if args.pde_refine:
@@ -192,12 +198,15 @@ def main(args):
             inverse_transform_output=inverse_transform_output,
             train_prop = 0.6,
             data_MC=args.data_MC,
+            data_shuffle_size=args.data_MC_n,
         )
     
     else:
         final_model = intermediate_model
 
     print("Finished training the final model.")
+
+    ### TO DO mettre non dim function dans un pickle
 
     # plot_tools.plot_difference_reference(final_model, device, 
     #                                     data_path=data_dir, 
@@ -220,7 +229,9 @@ if __name__ == '__main__':
     # training settings
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     # parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to 4*batch_size')
+    parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to n*batch_size')
+    parser.add_argument('--data_MC_n', type=int, default=4, help='number of multiplier per batch_size to sample for MC sampling, only used if data_MC is True')
+    parser.add_argument('--data_MC_sample_mode', type=str, default='random', choices=['random', 'time_windowed'], help='sampling mode for MC sampling, only used if data_MC is True')
     parser.add_argument('--non_dim', type=bool, default=False, help='whether to use non-dimensionalization')
     parser.add_argument('--nu', type=float, default=0.01, help='kinematic viscosity')
     parser.add_argument('--batch_size', type=int, default=8192, help='batch size')
@@ -229,7 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs_nodata', type=int, default=2000, help='training epochs for no data')
 
     # model settings
-    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved'], help='type of mlp')
+    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved', 'dm_mlp', 'pirate_mlp'], help='type of mlp')
     parser.add_argument('--n_layers', type=int, default=4, help='the number of layer')
     parser.add_argument('--features', type=int, default=256, help='feature size of each layer')
     parser.add_argument('--RFF', type=bool, default=False, help='whether to use Random Fourier Features')

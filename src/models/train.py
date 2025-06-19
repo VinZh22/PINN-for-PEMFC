@@ -52,7 +52,10 @@ class Train_Loop(ABC):
         self.lambda_initial = lambda_list[3]
 
         self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list)
-        self.loss_history_train = []
+        self.loss_history_PDE = []
+        self.loss_history_data = []
+        self.loss_history_boundary = []
+        self.loss_history_initial = []
         self.loss_history_test = []
         
         self.time_to_complete = f"Total time: {0.:.2f}s | Avg speed: {0.:.2f} it/s"
@@ -79,7 +82,10 @@ class Train_Loop(ABC):
 
         return txy_col, output_data, xyt_col_test, output_data_test
 
-    def train_pinn(self, config, save_path, train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, train_data_shuffle = False,  additional_name = ""):
+    def train_pinn(self, config, save_path, 
+                   train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, 
+                   train_data_shuffle = False, data_shuffle_size = 4, sample_mode = "random",
+                   additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
 
@@ -94,16 +100,32 @@ class Train_Loop(ABC):
         txy_col, output_data, xyt_col_test, output_data_test = self.set_data(config, train_prop)
 
         # If data shuffle, prepare the parameters
+        id_time_window = 0 ## only used if sample_mode is "time_windowed"
+        time_max = txy_col[:, 0].max().item()
+        time_min = txy_col[:, 0].min().item()
+        time_ampl = time_max - time_min
+        divide_size = epochs // self.sample_interval
+        divide_size = max(divide_size, 1)  # Ensure divide_size is at least 1 to avoid division by zero
+        time_step_size = time_ampl / divide_size
         if train_data_shuffle:
             # Shuffle the data
-            size_data_epoch = 4*self.batch_size
+            size_data_epoch = data_shuffle_size*self.batch_size
 
             print(f"Shuffling data {size_data_epoch} through {txy_col.size(0)}")
 
-            total_data_input = txy_col.clone()
-            total_data_output = output_data.clone()
+            total_data_input = txy_col.clone().to(device)
+            total_data_output = output_data.clone().to(device)
 
-            idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+            if sample_mode == "random":
+                idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+            elif sample_mode == "time_windowed":
+                print(f'Each time window will be of size {time_step_size} and we will have {divide_size} time windows')
+                idx = (total_data_input[:, 0] < time_min + (id_time_window+1) * time_step_size)
+                idx = torch.where(idx)[0]
+                sample_idx = torch.randperm(idx.size(0), device=device)[:size_data_epoch]
+                idx = idx[sample_idx]
+            else:
+                raise ValueError(f"Unknown sample mode: {sample_mode}")
             txy_col = total_data_input[idx]
             output_data = total_data_output[idx]
             txy_col = txy_col.detach().requires_grad_(True)
@@ -130,7 +152,7 @@ class Train_Loop(ABC):
         for epoch in progress_bar:
             # pdb.set_trace()
             optimizer.zero_grad()
-            if epoch % self.log_interval == 0 or epoch == epochs - 1:
+            if epoch!=0 and (epoch % self.log_interval == 0 or epoch == epochs - 1):
                 self.add_log_entry(loss_log, epoch, num_batches)
             self.loss_obj.new_epoch(self.lambda_data, self.lambda_pde, self.lambda_boundary, self.lambda_initial)
             tmp_loader = batch_data(txy_col, output_data, batch_size, shuffle=False)
@@ -149,7 +171,13 @@ class Train_Loop(ABC):
                 self.loss_obj.backward(retain = False)
                 optimizer.step()
                 scheduler.step()
-            self.loss_history_train.append(self.loss_obj.get_loss_pde().item() / num_batches)
+            self.loss_history_PDE.append(self.loss_obj.get_loss_pde() / num_batches)
+            if self.lambda_data > 0.:
+                self.loss_history_data.append(self.loss_obj.get_loss_data() / num_batches)
+            if self.lambda_boundary > 0.:
+                self.loss_history_boundary.append(self.loss_obj.get_loss_boundary() / num_batches)
+            if self.lambda_initial > 0.:
+                self.loss_history_initial.append(self.loss_obj.get_loss_initial() / num_batches)
 
             if epoch % self.refresh_bar == 0 or epoch == epochs - 1:
                 test_loader = batch_data(xyt_col_test, output_data_test, batch_size, shuffle=False)
@@ -161,7 +189,17 @@ class Train_Loop(ABC):
             if epoch % self.sample_interval == 0:
                 ## Let's shuffle another time the data
                 if train_data_shuffle:
-                    idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+                    if sample_mode == "random":
+                        idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+                    elif sample_mode == "time_windowed":
+                        id_time_window +=1
+                        print(f"Current id_time_window: {id_time_window} out of {divide_size}")
+                        idx = (total_data_input[:, 0] < time_min + (id_time_window+1) * time_step_size)
+                        idx = torch.where(idx)[0]
+                        sample_idx = torch.randperm(idx.size(0), device=device)[:size_data_epoch]
+                        idx = idx[sample_idx]
+                    else:
+                        raise ValueError(f"Unknown sample mode: {sample_mode}")
                     txy_col = total_data_input[idx]
                     output_data = total_data_output[idx]
                     txy_col = txy_col.detach().requires_grad_(True)
@@ -169,16 +207,26 @@ class Train_Loop(ABC):
         
 
         self.loss_history_test = np.array(self.loss_history_test)
-        self.loss_history_train = np.array(self.loss_history_train)
+        self.loss_history_PDE = np.array(self.loss_history_PDE)
+        self.loss_history_data = np.array(self.loss_history_data)
+        self.loss_history_boundary = np.array(self.loss_history_boundary)
+        self.loss_history_initial = np.array(self.loss_history_initial)
 
         self.time_to_complete = f"Total time: {progress_bar.format_dict["elapsed"]:.2f}s | Avg speed: {epochs/progress_bar.format_dict["elapsed"]:.2f} it/s"
         self.save_log(save_path, loss_log, additional_name)
-        self.save_time_complete(save_path, additional_name)
+        self.save_completed_stat(save_path, additional_name)
 
         return self.model
 
     def get_loss_history(self):
-        return {"Train Loss": self.loss_history_train, "val_loss": self.loss_history_test}
+        losses = {"PDE Loss (on training points)": self.loss_history_PDE, "val_loss": self.loss_history_test}
+        if self.loss_history_data.shape[0] > 0:
+            losses["Data Loss (on training points)"] = self.loss_history_data
+        if self.loss_history_boundary.shape[0] > 0:
+            losses["Boundary Loss (on training points)"] = self.loss_history_boundary
+        if self.loss_history_initial.shape[0] > 0:
+            losses["Initial Condition Loss (on training points)"] = self.loss_history_initial
+        return losses
     
     def save_model(self, path, additional_name = ""):
         """
@@ -215,13 +263,19 @@ class Train_Loop(ABC):
         os.makedirs(path, exist_ok=True)
         pd.DataFrame(log).to_csv(os.path.join(path, "log" + additional_name + ".csv"), index=False)
 
-    def save_time_complete(self, path, additional_name = ""):
+    def save_completed_stat(self, path, additional_name = ""):
         """
         Save the time to complete the training.
         """
         os.makedirs(path, exist_ok=True)
-        with open(os.path.join(path, 'time_complete'+ additional_name+'.txt'), 'w') as f:
+        with open(os.path.join(path, 'completed_stat'+ additional_name+'.txt'), 'w') as f:
             f.write(self.time_to_complete)
+            f.write("\n")
+            f.write(f"loss_pde: {self.loss_obj.get_loss_pde()}\n")
+            f.write(f"loss_data: {self.loss_obj.get_loss_data()}\n")
+            f.write(f"loss_boundary: {self.loss_obj.get_loss_boundary()}\n")
+            f.write(f"loss_initial: {self.loss_obj.get_loss_initial()}\n")
+            f.write(f"loss_test: {self.loss_history_test[-1]}\n")
     
     def set_condition_data(self):
         radius = 0.99
@@ -284,7 +338,7 @@ class Train_Loop_data(Train_Loop):
         """
         self.loss_obj.data_loss(outputs, targets)
         self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
-        self.loss_obj.get_total_loss()
+        return self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):
         return evaluate_model(self.model, test_loader, self.device, self.batch_size)

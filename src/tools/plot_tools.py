@@ -189,7 +189,10 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     plt.colorbar(cax, label='Speed (m/s)')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
-    ax.set_title(f'Speed Map at t = {t[0]:.2f}s')
+    title = 'Speed Map at t = {:.2f}s'.format(t[0])
+    if sample_z is not None:
+        title += f' at z = {sample_z:.2f}'
+    ax.set_title(title)
 
     def update(frame):
         ax.clear()

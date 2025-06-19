@@ -78,11 +78,12 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
         df = pd.read_csv(file_path)
     # Remove the first frame because not relevant and sometime not feasible
     df = df[df["Time"] > 1]
-    time_points = sorted(df["Time"].unique())
-    time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
-    if time_gcd != 1:
-        df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
-        print(f"Normalized time to the greatest common divisor: {time_gcd}")
+    df = df[df["Time"] < 2000]  # Remove the last frame because not relevant and sometime not feasible
+    # time_points = sorted(df["Time"].unique())
+    # time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
+    # if time_gcd != 1:
+    #     df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
+    #     print(f"Normalized time to the greatest common divisor: {time_gcd}")
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 
