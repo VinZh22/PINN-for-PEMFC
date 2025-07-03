@@ -223,8 +223,6 @@ class Train_Loop(ABC):
         self.save_log(save_path, loss_log, additional_name)
         self.save_completed_stat(save_path, additional_name)
 
-        pdb.set_trace()
-
         return self.model
 
     def get_loss_history(self):
