@@ -150,7 +150,6 @@ class PirateNet(nn.Module):
 
         self.layers1 = []
         self.layers2 = []
-        self.layers3 = []
         for i in range(1,len(layers_num) - 1):
             self.layers1.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
             nn.init.xavier_uniform_(self.layers1[-1][0].weight)
@@ -194,104 +193,33 @@ class PINN_import(PINN):
         """
         self.model = torch.load(model_path,  weights_only=False)
 
-class PINN_LORA(PINN):
-    def __init__(self, rank, features, pos_enc, mlp = 'modified_mlp', output_len = 3, RFF = False, RFF_sigma = 1., hard_constraint = None, ):
+class PINN_import_lora(PINN):
+    def __init__(self, model_path, input_len, output_len, data_input, device, RFF = False, RFF_sigma = 1., hard_constraint = None, r=4):
         """
-        We have input_len = 3 as fixed, no RFF
-        We don't exploit the collocation points trick, nor the forward AD, it's very slow.
+        layers: list of integers representing the number of neurons in each layer
+        activation: activation function to be used in the hidden layers
         """
-        assert RFF == False, "RFF is not supported in LORA"
-        super(PINN_LORA, self).__init__(3, output_len, RFF, RFF_sigma, hard_constraint)
+        super(PINN_import_lora, self).__init__(input_len, output_len, data_input, device, RFF, RFF_sigma, hard_constraint)
+        self.load_model(model_path, input_len, output_len, r)
 
-        self.model = LORA(features, rank, output_len, pos_enc, mlp)
-class LORA(nn.Module):
-    def __init__(self, features, r, out_dim, pos_enc, mlp):
+    def load_model(self, model_path, input_len, output_len, r):
+        """
+        Load the model from the specified path.
+        """
+        self.model = Import_LORA(model_path=model_path, inp=input_len, out=output_len, r=r)
+
+class Import_LORA(nn.Module):
+    def __init__(self, model_path, inp, out, r=4):
         super().__init__()
-        self.features = features
         self.r = r
-        self.out_dim = out_dim
-        self.pos_enc = pos_enc
-        self.mlp_type = mlp
-        
-        if mlp == 'mlp':
-            self.t_mlp = self._make_mlp()
-            self.x_mlp = self._make_mlp()
-            self.y_mlp = self._make_mlp()
-        elif mlp == 'modified_mlp':
-            self.t_mlp = self._make_modified_mlp()
-            self.x_mlp = self._make_modified_mlp()
-            self.y_mlp = self._make_modified_mlp()
-        
-    def _make_mlp(self):
-        layers = []
-        for fs in self.features[:-1]:
-            layers.append(nn.LazyLinear(fs))
-            layers.append(nn.Tanh())
-        layers.append(nn.LazyLinear(self.r * self.out_dim))
-        return nn.Sequential(*layers)
-    
-    def _make_modified_mlp(self):
-        class ModifiedMLPBlock(nn.Module):
-            def __init__(self, in_features, out_features):
-                super().__init__()
-                self.U = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
-                self.V = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
-                self.H = nn.Sequential(nn.LazyLinear(out_features), nn.Tanh())
-                self.Z = nn.Sequential(nn.Linear(out_features, out_features), nn.Tanh())
-                
-            def forward(self, x):
-                U = self.U(x)
-                V = self.V(x)
-                H = self.H(x)
-                Z = self.Z(H)
-                return (1 - Z) * U + Z * V
-        
-        layers = []
-        for fs in self.features[:-1]:
-            layers.append(ModifiedMLPBlock(None, fs))
-        layers.append(nn.LazyLinear(self.r * self.out_dim))
-        return nn.Sequential(*layers)
-    
-    def forward(self, input):
-        t,x,y = input[:, 0], input[:, 1], input[:, 2]
-        if self.pos_enc != 0:
-            # positional encoding for spatial coordinates (x and y)
-            freq = torch.arange(1, self.pos_enc + 1, 1, device=x.device).unsqueeze(0)
-            x = torch.cat([torch.ones(x.shape[0], 1), 
-                          torch.sin(x @ freq), 
-                          torch.cos(x @ freq)], dim=1)
-            y = torch.cat([torch.ones(y.shape[0], 1), 
-                          torch.sin(y @ freq), 
-                          torch.cos(y @ freq)], dim=1)
-            
-        # Process each input
-        t_out = self.t_mlp(t.unsqueeze(1)).T
-        x_out = self.x_mlp(x.unsqueeze(1)).T
-        y_out = self.y_mlp(y.unsqueeze(1)).T
+        self.lora_A = nn.Parameter(torch.randn(inp, r))
+        self.lora_B = nn.Parameter(torch.randn(r, out))
 
-            
-        outputs = [t_out, x_out, y_out]
-        pred = []
-        
-        for i in range(self.out_dim):
-            # ft, fx -> ftx
-            tx_i = torch.einsum('ft,fx->ftx', 
-                              outputs[0][self.r*i:self.r*(i+1)], 
-                              outputs[1][self.r*i:self.r*(i+1)])
-            # ftx, fy -> txy
-            pred_i = torch.einsum('ftx,fy->txy', 
-                                tx_i, 
-                                outputs[2][self.r*i:self.r*(i+1)])
-            ## Shape (batch_size, batch_size, batch_size), indice (t,x,y)
-            # Let's ignore the benefits of SPINN collocation points and take the initial points
-            n = pred_i.shape[0]
-            idx = torch.arange(n, device = pred_i.device)
-            pred_i = pred_i[idx, idx, idx]
-            pred.append(pred_i)
+        self.loaded_model = torch.load(model_path, weights_only=False)
+        self.loaded_model.eval()  # Set the loaded model to evaluation mode
 
-        # pdb.set_trace()
-        pred = torch.stack(pred, dim = 0).T
-        return pred[0] if len(pred) == 1 else pred
+    def forward(self, x):
+        return self.loaded_model(x) + (x @ self.lora_A) @ self.lora_B
 
 class PINN_time_windows(nn.Module):
     def __init__(self, layers_num, T_max, T_min = 0, num_windows = 10, RFF = False, RFF_sigma = 1., hard_constraint = None, activation=nn.Tanh, ):

@@ -75,15 +75,31 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
         The output data as a numpy array.
     """
     if df is None:
+        print(f"Have not imported data frame yet, importing now from {file_path}")
+        ## Maybe format it at the same time???
         df = pd.read_csv(file_path)
-    # Remove the first frame because not relevant and sometime not feasible
-    df = df[df["Time"] > 1]
-    df = df[df["Time"] < 2000]  # Remove the last frame because not relevant and sometime not feasible
-    # time_points = sorted(df["Time"].unique())
-    # time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
-    # if time_gcd != 1:
-    #     df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
-    #     print(f"Normalized time to the greatest common divisor: {time_gcd}")
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 
+
+def format_df(file_path, df : pd.DataFrame = None) -> pd.DataFrame:
+    if df is None:
+        df = pd.read_csv(file_path)
+    if "Time" not in df.columns:
+        print("Time column not found in the DataFrame, adding a default time column.")
+        df["Time"] = 100  # Add a default time column if
+    # Remove the first frame because not relevant and sometime not feasible
+    df = df[df["Time"] > 1]
+    df = df[df["Time"] <= 3000]  # Remove the last frame because not relevant and sometime not feasible
+    time_points = sorted(df["Time"].unique())
+    if len(time_points) > 3:
+        time_gcd = np.gcd(int(time_points[2]), int(time_points[1]))  # Calculate the GCD of the first two time points
+        if time_gcd != 1:
+            df.loc[:, "Time"] = df["Time"] / time_gcd  # Normalize time to the greatest common divisor
+            ## Normalize the speed now
+            columns = df.columns.tolist()
+            points_columns = [col.split(":")[1] for col in columns if col.startswith("Points:")]
+            for point in points_columns:
+                df.loc[:,"U:" + point] = df["U:" + point] / time_gcd
+            print(f"Normalized time to the greatest common divisor: {time_gcd}")
+    return df

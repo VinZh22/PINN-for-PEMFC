@@ -16,7 +16,9 @@ from time import time
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
 from src.tools.plot_tools import evaluate_model
+from src.tools.util_func import save_functions
 from torch.optim.lr_scheduler import ExponentialLR
+from src.tools.soap import SOAP
 
 import pdb
 
@@ -84,7 +86,7 @@ class Train_Loop(ABC):
 
     def train_pinn(self, config, save_path, 
                    train_prop = 0.01, nu=0.01, epochs=10000, adapting_weight = True, 
-                   train_data_shuffle = False, data_shuffle_size = 4, sample_mode = "random",
+                   train_data_shuffle = False, data_shuffle_size = 4, sample_mode = "random", optimizer_name = "Adam",
                    additional_name = ""):
         """
         Train the PINN model using the Navier-Stokes equations.
@@ -143,7 +145,12 @@ class Train_Loop(ABC):
         decay = 0.1
         decay_steps = 2000
 
-        optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        if optimizer_name == "Adam":
+            optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        elif optimizer_name == "SOAP":
+            optimizer = SOAP(self.model.parameters(), lr=lr)
+        else:
+            raise ValueError(f"Unknown optimizer: {optimizer_name}")
         scheduler = ExponentialLR(optimizer, gamma=(1 - decay/decay_steps))
         progress_bar = tqdm(range(epochs), desc="Training Progress", unit="epoch")
 
@@ -216,10 +223,12 @@ class Train_Loop(ABC):
         self.save_log(save_path, loss_log, additional_name)
         self.save_completed_stat(save_path, additional_name)
 
+        pdb.set_trace()
+
         return self.model
 
     def get_loss_history(self):
-        losses = {"PDE Loss (on training points)": self.loss_history_PDE, "val_loss": self.loss_history_test}
+        losses = {"PDE Loss (on training points)": self.loss_history_PDE, "Test loss": self.loss_history_test}
         if self.loss_history_data.shape[0] > 0:
             losses["Data Loss (on training points)"] = self.loss_history_data
         if self.loss_history_boundary.shape[0] > 0:

@@ -19,7 +19,7 @@ from datetime import datetime
 
 def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epochs, non_dim,
                    forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output,
-                   train_prop, data_MC, data_shuffle_size, sample_mode = "random", additional_name = ""):
+                   train_prop, data_MC, data_shuffle_size, sample_mode = "random", optimizer_name = "Adam", additional_name = ""):
     trained_model = train_obj.train_pinn(
         config=config,
         save_path=save_dir,
@@ -30,7 +30,8 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
         additional_name=additional_name,
         train_data_shuffle=data_MC,
         data_shuffle_size= data_shuffle_size,
-        sample_mode=sample_mode
+        sample_mode=sample_mode,
+        optimizer_name=optimizer_name,
     )
 
     os.makedirs(save_dir, exist_ok=True)
@@ -96,6 +97,7 @@ def main(args):
         raise FileNotFoundError(f"Data file {data_dir} does not exist. Please check the path.")
     print(f"Loading data from {data_dir}")
     df = pd.read_csv(data_dir)
+    df = load_data.format_df(data_dir, df)    
 
     if args.force2D:
         print("Forcing the data to be 2D by removing the z dimension.")
@@ -135,6 +137,12 @@ def main(args):
         PINN = model.DM_PINN(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'pirate_mlp':
         PINN = model.PINN_PirateNet(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
+    elif args.model == 'saved_lora':
+        r = args.rank_lora
+        print(f"Using LoRA with rank {r} for the saved model.")
+        PINN = model.PINN_import_lora(args.saved_model, r=r, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device)
+    else:
+        raise ValueError(f"Unknown model type: {args.model}")
 
     summary(PINN, input_size=(args.batch_size, data_input), device=device)
 
@@ -167,7 +175,8 @@ def main(args):
         train_prop=args.train_prop,
         data_MC=args.data_MC,
         data_shuffle_size=args.data_MC_n,
-        sample_mode=args.data_MC_sample_mode
+        sample_mode=args.data_MC_sample_mode,
+        optimizer_name=args.optimizer,
     )
 
     if args.pde_refine:
@@ -199,6 +208,8 @@ def main(args):
             train_prop = 0.6,
             data_MC=args.data_MC,
             data_shuffle_size=args.data_MC_n,
+            sample_mode=args.data_MC_sample_mode,
+            optimizer_name=args.optimizer,
         )
     
     else:
@@ -206,15 +217,22 @@ def main(args):
 
     print("Finished training the final model.")
 
-    ### TO DO mettre non dim function dans un pickle
-
-    # plot_tools.plot_difference_reference(final_model, device, 
-    #                                     data_path=data_dir, 
-    #                                     save_dir=save_dir, 
-    #                                     non_dim=non_dim,
-    #                                     forward_transform_input=forward_transform_input, 
-    #                                     forward_transform_output=forward_transform_output,
-    #                                     inverse_transform_input=inverse_transform_input,)
+    util_func.save_functions(
+        save_dir=save_dir,
+        forward_transform_input=forward_transform_input,
+        forward_transform_output=forward_transform_output,
+        inverse_transform_input=inverse_transform_input,
+        inverse_transform_output=inverse_transform_output,
+    )
+    if not args.skip_difference:
+        plot_tools.plot_difference_reference(final_model, device, 
+                                            data_path=data_dir, 
+                                            save_dir=save_dir, 
+                                            df = df,
+                                            non_dim=non_dim,
+                                            forward_transform_input=forward_transform_input, 
+                                            forward_transform_output=forward_transform_output,
+                                            inverse_transform_input=inverse_transform_input,)
 
 
 if __name__ == '__main__':
@@ -225,10 +243,12 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_file', type=str, default="./data/", help='path to the data file')
     parser.add_argument('--data_name_file', type=str, default="cylinder.csv", help='name of the data file')
     parser.add_argument('--force2D', type=bool, default=False, help='whether to force the data to be 2D, i.e., only use x and y coordinates')
+    parser.add_argument("--skip_difference", type=bool, default=False, help="whether to skip the difference plot at the end of training")
 
     # training settings
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     # parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--optimizer', type=str, default='Adam', choices=['Adam', 'SOAP'], help='optimizer to use')
     parser.add_argument('--data_MC', type=bool, default=False, help='whether to use Monte Carlo sampling for data, and cap the sample size to n*batch_size')
     parser.add_argument('--data_MC_n', type=int, default=4, help='number of multiplier per batch_size to sample for MC sampling, only used if data_MC is True')
     parser.add_argument('--data_MC_sample_mode', type=str, default='random', choices=['random', 'time_windowed'], help='sampling mode for MC sampling, only used if data_MC is True')
@@ -240,7 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs_nodata', type=int, default=2000, help='training epochs for no data')
 
     # model settings
-    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved', 'dm_mlp', 'pirate_mlp'], help='type of mlp')
+    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved', 'saved_lora', 'dm_mlp', 'pirate_mlp'], help='type of mlp')
     parser.add_argument('--n_layers', type=int, default=4, help='the number of layer')
     parser.add_argument('--features', type=int, default=256, help='feature size of each layer')
     parser.add_argument('--RFF', type=bool, default=False, help='whether to use Random Fourier Features')
@@ -248,6 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('--out_dim', type=int, default=3, help='size of model output, might not be 3 if using RFF')
     parser.add_argument('--saved_model', type=str, default=None, help='path to saved model')
     parser.add_argument('--train_prop', type=float, default=0.01, help='proportion of training data')
+    parser.add_argument('--rank_lora', type=int, default=25, help='rank for LoRA model, only used if model is saved_lora')
 
     # log settings
     parser.add_argument('--log_iter', type=int, default=50, help='print log every...')

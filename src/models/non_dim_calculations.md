@@ -74,3 +74,16 @@ On a ainsi en posant $Re = \frac{\hat{U} L}{\nu}$ :
 $$
 \frac{du_*}{dt_*} + u_* \frac{du_*}{dx_*} +v_* \frac{du_*}{dy_*} + \frac{dp_*}{dx_*} = \frac{1}{Re} (\frac{d^2u_*}{dx_*^2} +  \frac{d^2u_*}{dy_*^2})
 $$
+
+
+### Proof with viscosity pressure
+
+This time $\hat{P} = \frac{\nu \hat{U}}{L} $ giving us :
+$$
+\frac{\hat{U}}{T_{std}}\frac{du_*}{dt_*} +\frac{\hat{U}^2}{L} u_* \frac{du_*}{dx_*} + \frac{\hat{U}^2}{L} v_* \frac{du_*}{dy_*} + \frac{\hat{U}\nu}{L^2} \frac{dp_*}{dx_*} = \nu (\frac{\hat{U}}{L^2} \frac{d^2u_*}{dx_*^2} + \frac{\hat{U}}{L^2} \frac{d^2u_*}{dy_*^2})
+$$
+
+When divided by $ \frac{\hat{U}^2}{L} $ :
+$$
+\frac{du_*}{dt_*} + u_* \frac{du_*}{dx_*} +v_* \frac{du_*}{dy_*} = \frac{1}{Re} (\frac{d^2u_*}{dx_*^2} +  \frac{d^2u_*}{dy_*^2} - \frac{dp_*}{dx_*})
+$$

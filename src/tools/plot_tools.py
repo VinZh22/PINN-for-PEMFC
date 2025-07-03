@@ -198,7 +198,10 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
         ax.clear()
         cax = ax.contourf(X, Y, speed_maps[frame], levels=20, cmap='viridis')
         # ax.add_artist(circle)
-        ax.set_title(f'Speed Map at t = {t[frame]:.2f}s')
+        title = 'Speed Map at t = {:.2f}s'.format(t[0])
+        if sample_z is not None:
+            title += f' at z = {sample_z:.2f}'
+        ax.set_title(title)
         return cax
 
     # Generate animation
@@ -208,23 +211,19 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()
 
-def plot_difference_reference(model, device, data_path, save_dir, 
+def plot_difference_reference(model, device, data_path, save_dir, df,
                               non_dim=False, forward_transform_input=None, forward_transform_output=None, inverse_transform_input=None):
     """
     Plot for the model the MSE of the space with time, plot at each point in space the average MSE over time and 
     """
     
-    X,Y = import_data(data_path, nondim_input=forward_transform_input, nondim_output=forward_transform_output)
+    X,Y = import_data(data_path, df, nondim_input=forward_transform_input, nondim_output=forward_transform_output)
 
     X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True).to(device)
     Y_tensor = torch.tensor(Y, dtype=torch.float32, requires_grad=True).to(device)
 
-    loader = DataLoader(
-        [X_tensor, Y_tensor],
-        batch_size=1024,  # Adjust batch size as needed
-        shuffle=False,
-    )
-    pdb.set_trace()
+
+
     with torch.no_grad():
         uvp_pred = model(X_tensor)
 
@@ -255,6 +254,11 @@ def plot_difference_reference(model, device, data_path, save_dir,
     # --- Now the MSE over time at each point in space
     mse_over_space = []
     space = []
+    if X.shape[1] == 4: ## 3D case
+        z_sampled = np.unique(X[:,2])[0]
+        X = X[X[:,2] == z_sampled]
+        Y_tensor = Y_tensor[X[:,2] == z_sampled]
+        uvp_pred = uvp_pred[X[:,2] == z_sampled]
     points = np.unique(X[:,1:], axis=0)
     for point in tqdm(points):
         indices = X[:,1:] == point
