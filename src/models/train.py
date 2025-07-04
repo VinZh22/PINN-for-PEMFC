@@ -326,10 +326,24 @@ class Train_Loop_data(Train_Loop):
     Class for training loops with data.
     """
 
-    def __init__(self, model:model.PINN, device, batch_size, data, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000):
+    def __init__(self, model:model.PINN, device, batch_size, data, 
+                 nondim_input = None, nondim_output = None, use_bc = False,
+                 nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000, file_bc_path = ""):
+        if use_bc:
+            need_loss = [True, True, True, False]
+            lambda_list = [1., 1., 1., 0.]
+        else:
+            need_loss = [True, True, False, False]
+            lambda_list = [1., 1., 0., 0.]
         super().__init__(model, device,
-                         [True, True, False, False], [1., 1., 0., 0.], refresh_bar=refresh_bar, log_interval=log_interval, sample_interval=sample_interval,
+                         need_loss, lambda_list, refresh_bar=refresh_bar, log_interval=log_interval, sample_interval=sample_interval,
                          nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output,)
+        self.use_bc = use_bc
+        if use_bc:
+            print("Importing boundary condition geometry from", file_bc_path)
+            X_bc, Y_bc = import_data(file_path=file_bc_path, nondim_input= nondim_input, nondim_output= nondim_output)
+            self.BC_geom = torch.tensor(X_bc, dtype=torch.float32, requires_grad=True).to(device)
+            self.BC_target = torch.tensor(Y_bc, dtype=torch.float32, requires_grad=False).to(device)
 
     def compute_loss(self, inputs, outputs, targets):
         """
@@ -345,6 +359,9 @@ class Train_Loop_data(Train_Loop):
         """
         self.loss_obj.data_loss(outputs, targets)
         self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
+        if self.use_bc:
+            outputs_bc = self.model(self.BC_geom)
+            self.loss_obj.boundary_loss(outputs_bc, self.BC_target)
         return self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):

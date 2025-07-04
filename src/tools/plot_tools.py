@@ -191,7 +191,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     ax.set_ylabel('y')
     title = 'Speed Map at t = {:.2f}s'.format(t[0])
     if sample_z is not None:
-        title += f' at z = {sample_z:.2f}'
+        title += f' at z = {sample_z:.6f}'
     ax.set_title(title)
 
     def update(frame):
@@ -200,7 +200,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
         # ax.add_artist(circle)
         title = 'Speed Map at t = {:.2f}s'.format(t[0])
         if sample_z is not None:
-            title += f' at z = {sample_z:.2f}'
+            title += f' at z = {sample_z:.6f}'
         ax.set_title(title)
         return cax
 
@@ -255,10 +255,11 @@ def plot_difference_reference(model, device, data_path, save_dir, df,
     mse_over_space = []
     space = []
     if X.shape[1] == 4: ## 3D case
-        z_sampled = np.unique(X[:,2])[0]
-        X = X[X[:,2] == z_sampled]
-        Y_tensor = Y_tensor[X[:,2] == z_sampled]
-        uvp_pred = uvp_pred[X[:,2] == z_sampled]
+        z_sampled = np.unique(X[:,3])[0]
+        mask = X[:,3] == z_sampled 
+        X = X[mask]
+        Y_tensor = Y_tensor[mask]
+        uvp_pred = uvp_pred[mask]
     points = np.unique(X[:,1:], axis=0)
     for point in tqdm(points):
         indices = X[:,1:] == point
@@ -276,7 +277,10 @@ def plot_difference_reference(model, device, data_path, save_dir, df,
     plt.figure(figsize=(10, 6))
     plt.scatter(space[:,0], space[:,1], c=mse_over_space, cmap='viridis')
     plt.colorbar(label='MSE')
-    plt.title('MSE over space')
+    title = 'MSE over space'
+    if X.shape[1] == 4: ## 3D case
+        title = title + f'at z = {z_sampled:.2f}'
+    plt.title(title)
     plt.xlabel('x')
     plt.ylabel('y')
     plt.grid(True, alpha=0.3)

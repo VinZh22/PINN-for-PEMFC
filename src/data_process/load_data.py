@@ -78,11 +78,12 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
         print(f"Have not imported data frame yet, importing now from {file_path}")
         ## Maybe format it at the same time???
         df = pd.read_csv(file_path)
+        df = format_df(df)
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 
 
-def format_df(file_path, df : pd.DataFrame = None) -> pd.DataFrame:
+def format_df(df : pd.DataFrame = None) -> pd.DataFrame:
     if df is None:
         df = pd.read_csv(file_path)
     if "Time" not in df.columns:

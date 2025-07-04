@@ -200,19 +200,21 @@ class Loss:
         self.loss_data_tmp = tmp
         return tmp
     
-    def compute_boundary_loss(self, output, boundary) -> torch.Tensor:
+    def compute_boundary_loss(self, output, boundary_val) -> torch.Tensor:
         """
         output: [N, 3] tensor of outputs at those points
         boundary: [N, 3] tensor of boundary conditions at those points
 
         We suppose that the output is already in the right format
         """
-        tmp = nn.MSELoss()(output, boundary).to(self.device)
+        tmp = nn.MSELoss()(output, boundary_val).to(self.device)
         return tmp
     
-    def boundary_loss(self, output, boundary):
+    def boundary_loss(self, output, boundary_val = None):
         assert self.loss_boundary_tmp==0
-        tmp = self.compute_boundary_loss(output, boundary)
+        if boundary_val is None:
+            boundary_val = torch.zeros_like(output).to(self.device) ## if no boundary condition, we assume it's 0
+        tmp = self.compute_boundary_loss(output, boundary_val)
         self.loss_boundary += tmp.item()
         self.loss_boundary_tmp = tmp
         return tmp

@@ -42,12 +42,13 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
     inp, _ = load_data.import_data(
         file_path=config,
         df=train_obj.data)
+    start_T_sim = int(np.min(inp[:, 0]))  # Start time of simulation
     end_T_sim = int(np.max(inp[:, 0]))  # End time of simulation
-    x_min, x_max = int(np.min(inp[:, 1])), int(np.max(inp[:, 1]))  # Spatial bounds for x
-    y_min, y_max = int(np.min(inp[:, 2])), int(np.max(inp[:, 2]))  # Spatial bounds for y
+    x_min, x_max = float(np.min(inp[:, 1])), float(np.max(inp[:, 1]))  # Spatial bounds for x
+    y_min, y_max = float(np.min(inp[:, 2])), float(np.max(inp[:, 2]))  # Spatial bounds for y
     x = np.linspace(x_min, x_max, 100)  # Spatial grid (x)
     y = np.linspace(y_min, y_max, 100)  # Spatial grid (y)
-    t = np.linspace(0, end_T_sim, end_T_sim)   # Time grid
+    t = np.arange(start_T_sim, end_T_sim+1)   # Time grid
 
     # Create meshgrid for plotting
     X, Y = np.meshgrid(x, y)
@@ -95,9 +96,14 @@ def main(args):
     data_dir = os.path.join(args.data_path_file, args.data_name_file)
     if not os.path.exists(data_dir):
         raise FileNotFoundError(f"Data file {data_dir} does not exist. Please check the path.")
+    if args.bc_geom_file is not None:
+        args.bc_geom_file = os.path.join(args.data_path_file, args.bc_geom_file)
+        if not os.path.exists(args.bc_geom_file):
+            raise FileNotFoundError(f"Boundary condition geometry file {args.bc_geom_file} does not exist. Please check the path.")    
+
     print(f"Loading data from {data_dir}")
     df = pd.read_csv(data_dir)
-    df = load_data.format_df(data_dir, df)    
+    df = load_data.format_df(df)    
 
     if args.force2D:
         print("Forcing the data to be 2D by removing the z dimension.")
@@ -158,6 +164,8 @@ def main(args):
         refresh_bar=args.update_iter,
         log_interval=args.log_iter,
         sample_interval=args.shuffle_iter,
+        use_bc = args.use_bc,
+        file_bc_path=args.bc_geom_file,
     )
 
     intermediate_model = train_and_save(
@@ -258,6 +266,8 @@ if __name__ == '__main__':
     parser.add_argument('--pde_refine', type=bool, default=False, help='whether to use no data to refine the model')
     parser.add_argument('--epochs_data', type=int, default=5000, help='training epochs for data')
     parser.add_argument('--epochs_nodata', type=int, default=2000, help='training epochs for no data')
+    parser.add_argument('--use_bc', type=bool, default=True, help='whether to use boundary conditions in the training')
+    parser.add_argument('--bc_geom_file', type=str, default=None, help='path to the boundary condition geometry file, only used if use_bc is True')
 
     # model settings
     parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'modified_mlp', 'saved', 'saved_lora', 'dm_mlp', 'pirate_mlp'], help='type of mlp')
@@ -278,5 +288,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     assert args.model != 'saved' or args.saved_model is not None, "Please provide a saved model path if using the saved model option."
+    assert args.model != 'saved_lora' or args.saved_model is not None, "Please provide a saved model path if using the saved LoRA model option."
+    assert args.use_bc == False or args.bc_geom_file is not None, "Please provide a boundary condition geometry file if using boundary conditions."
 
     main(args)
