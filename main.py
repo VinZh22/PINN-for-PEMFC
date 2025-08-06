@@ -136,23 +136,21 @@ def main(args):
     else:
         data_input = 4
 
-    geometry_nb = 15 ## HYPERPARAMETER, number of geometry points to use for Lagrangian Topology
-
     layer = [args.in_dim] + [args.features] * args.n_layers + [args.out_dim]
     if args.model == 'mlp':
-        PINN = model.PINN_linear(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.PINN_linear(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'modified_mlp':
-        PINN = model.PINN_mod_MLP(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.PINN_mod_MLP(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'saved':
-        PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.PINN_import(args.saved_model, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device)
     elif args.model == 'dm_mlp':
-        PINN = model.DM_PINN(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.DM_PINN(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'pirate_mlp':
-        PINN = model.PINN_PirateNet(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.PINN_PirateNet(layer, data_input, RFF = args.RFF, hard_constraint=None, activation=nn.Tanh, device = device)
     elif args.model == 'saved_lora':
         r = args.rank_lora
         print(f"Using LoRA with rank {r} for the saved model.")
-        PINN = model.PINN_import_lora(args.saved_model, r=r, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device, LT = args.LT, LT_nb_geometry=geometry_nb)
+        PINN = model.PINN_import_lora(args.saved_model, r=r, input_len=args.in_dim, output_len=args.out_dim, data_input=data_input, RFF = args.RFF, device = device)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
@@ -252,16 +250,6 @@ def main(args):
                                             forward_transform_output=forward_transform_output,
                                             inverse_transform_input=inverse_transform_input,
                                             axis_order=[args.plot_horiz_axis, args.plot_vert_axis, args.plot_depth_axis],)
-    
-    if args.LT:
-        plot_tools.plot_Lagrangian_topology(
-            model=final_model,
-            save_dir=save_dir,
-            device=device,
-            file_bc_points=args.bc_geom_file,
-            inverse_transform_input=inverse_transform_input,
-            constants=constants,
-        )
 
 
 if __name__ == '__main__':
@@ -295,7 +283,6 @@ if __name__ == '__main__':
     parser.add_argument('--n_layers', type=int, default=4, help='the number of layer')
     parser.add_argument('--features', type=int, default=256, help='feature size of each layer')
     parser.add_argument('--RFF', type=bool, default=False, help='whether to use Random Fourier Features')
-    parser.add_argument('--LT', type=bool, default=False, help='whether to use Lagrangian Topology')
     parser.add_argument('--in_dim', type=int, default=3, help='size of model input, might not be 3 if using RFF')
     parser.add_argument('--out_dim', type=int, default=3, help='size of model output, might not be 3 if using RFF')
     parser.add_argument('--saved_model', type=str, default=None, help='path to saved model')

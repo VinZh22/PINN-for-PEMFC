@@ -360,16 +360,8 @@ class Train_Loop_data(Train_Loop):
         self.loss_obj.data_loss(outputs, targets)
         self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
         if self.use_bc:
-            if self.model.LT:
-                outputs_bc = self.model.get_topology_product(self.BC_geom)
-                outputs_inlet = self.model.get_topology_product(inputs)
-                target = torch.zeros_like(outputs_bc).to(self.device)
-                target_inlet = torch.ones_like(outputs_inlet).to(self.device)
-                outputs_bc = torch.cat((outputs_bc, outputs_inlet), dim=0)
-                target = torch.cat((target, target_inlet), dim=0)
-            else:
-                outputs_bc = self.model(self.BC_geom)
-                target = self.BC_target
+            outputs_bc = self.model(self.BC_geom)
+            target = self.BC_target
             self.loss_obj.boundary_loss(outputs_bc, target)
         return self.loss_obj.get_total_loss()
 
