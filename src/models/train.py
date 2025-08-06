@@ -30,6 +30,7 @@ class Train_Loop(ABC):
 
     def __init__(self, model:model.PINN, device, need_loss, lambda_list, 
                  nu, Re, alpha, batch_size, data:pd.DataFrame,
+                 time_dependant = True,
                  nondim_input = None, nondim_output = None, 
                  refresh_bar = 500, log_interval = 50, sample_interval = 1000):
 
@@ -53,7 +54,7 @@ class Train_Loop(ABC):
         self.lambda_boundary = lambda_list[2]
         self.lambda_initial = lambda_list[3]
 
-        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list)
+        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list, time_dependant=time_dependant)
         self.loss_history_PDE = []
         self.loss_history_data = []
         self.loss_history_boundary = []
@@ -157,7 +158,6 @@ class Train_Loop(ABC):
         loss_log: list[dict[str, float]] = []
 
         for epoch in progress_bar:
-            # pdb.set_trace()
             optimizer.zero_grad()
             if epoch!=0 and (epoch % self.log_interval == 0 or epoch == epochs - 1):
                 self.add_log_entry(loss_log, epoch, num_batches)
@@ -226,7 +226,7 @@ class Train_Loop(ABC):
         return self.model
 
     def get_loss_history(self):
-        losses = {"PDE Loss (on training points)": self.loss_history_PDE, "Test loss": self.loss_history_test}
+        losses = {"PDE Loss (on training points)": self.loss_history_PDE, "Data loss (on test points)": self.loss_history_test}
         if self.loss_history_data.shape[0] > 0:
             losses["Data Loss (on training points)"] = self.loss_history_data
         if self.loss_history_boundary.shape[0] > 0:
@@ -327,7 +327,7 @@ class Train_Loop_data(Train_Loop):
     """
 
     def __init__(self, model:model.PINN, device, batch_size, data, 
-                 nondim_input = None, nondim_output = None, use_bc = False,
+                 nondim_input = None, nondim_output = None, use_bc = False, time_dependant = True,
                  nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000, file_bc_path = ""):
         if use_bc:
             need_loss = [True, True, True, False]
@@ -337,7 +337,7 @@ class Train_Loop_data(Train_Loop):
             lambda_list = [1., 1., 0., 0.]
         super().__init__(model, device,
                          need_loss, lambda_list, refresh_bar=refresh_bar, log_interval=log_interval, sample_interval=sample_interval,
-                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output,)
+                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output, time_dependant = time_dependant,)
         self.use_bc = use_bc
         if use_bc:
             print("Importing boundary condition geometry from", file_bc_path)
@@ -360,8 +360,17 @@ class Train_Loop_data(Train_Loop):
         self.loss_obj.data_loss(outputs, targets)
         self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
         if self.use_bc:
-            outputs_bc = self.model(self.BC_geom)
-            self.loss_obj.boundary_loss(outputs_bc, self.BC_target)
+            if self.model.LT:
+                outputs_bc = self.model.get_topology_product(self.BC_geom)
+                outputs_inlet = self.model.get_topology_product(inputs)
+                target = torch.zeros_like(outputs_bc).to(self.device)
+                target_inlet = torch.ones_like(outputs_inlet).to(self.device)
+                outputs_bc = torch.cat((outputs_bc, outputs_inlet), dim=0)
+                target = torch.cat((target, target_inlet), dim=0)
+            else:
+                outputs_bc = self.model(self.BC_geom)
+                target = self.BC_target
+            self.loss_obj.boundary_loss(outputs_bc, target)
         return self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):
@@ -382,13 +391,17 @@ class Train_Loop_data(Train_Loop):
         return import_data(file_path, self.data, nondim_input, nondim_output)
     
     def update_progress_bar(self, progress_bar, loss_test, num_batches):
-        progress_bar.set_postfix(
-            loss_pde=float(self.loss_obj.get_loss_pde()) / num_batches,
-            loss_data=float(self.loss_obj.get_loss_data()) / num_batches,
-            loss_test = float(loss_test),
-            lambda_pde=float(self.lambda_pde),
-            lambda_data=float(self.lambda_data),
-        )
+        postfix_dic = {
+            "loss_pde": float(self.loss_obj.get_loss_pde()) / num_batches,
+            "loss_data": float(self.loss_obj.get_loss_data()) / num_batches,
+            "lambda_pde": float(self.lambda_pde),
+            "lambda_data": float(self.lambda_data),
+            "loss_test": float(loss_test),
+        }
+        if self.use_bc:
+            postfix_dic["loss_bc"] = float(self.loss_obj.get_loss_boundary()) / num_batches
+            postfix_dic["lambda_bc"] = float(self.lambda_boundary)
+        progress_bar.set_postfix(**postfix_dic)
 
 class Train_Loop_nodata(Train_Loop):
     def __init__(self, model, device, init_path, data, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):

@@ -34,7 +34,9 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
 
     Re = U_hat * L / nu
 
-    p_hat = U_hat**2  # Non-dimensional pressure scale (using dynamic pressure)
+    p_mean = np.mean(output[:,-1])  # Mean pressure
+    p_hat = p_mean  # Non-dimensional pressure scale (using dynamic pressure)
+    # p_hat = U_hat**2  # Non-dimensional pressure scale (using dynamic pressure)
 
     T_hat = L / U_hat
 
@@ -92,7 +94,8 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     inverse_transform_output = np.vectorize(inverse_transform_output, signature='(n)->(n)')
 
 
-    return forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re
+    return (forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re, 
+            [pos_mean, L, T_mean, U_hat, T_hat, p_hat])
 
 def save_functions(save_dir, forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output):
     """

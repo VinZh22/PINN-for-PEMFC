@@ -78,7 +78,7 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
         print(f"Have not imported data frame yet, importing now from {file_path}")
         ## Maybe format it at the same time???
         df = pd.read_csv(file_path)
-        df = format_df(df)
+        df, _ = format_df(df)
     ## Convert to numpy array
     X, Y = convert_to_numpy(df, nondim_input, nondim_output)
     return X, Y 
@@ -86,9 +86,11 @@ def import_data(file_path:str, df:pd.DataFrame = None, nondim_input = None, nond
 def format_df(df : pd.DataFrame = None) -> pd.DataFrame:
     if df is None:
         df = pd.read_csv(file_path)
+    time_dependant = True
     if "Time" not in df.columns:
         print("Time column not found in the DataFrame, adding a default time column.")
         df["Time"] = 100  # Add a default time column if
+        time_dependant = False
     # Remove the first frame because not relevant and sometime not feasible
     df = df[df["Time"] > 1]
     df = df[df["Time"] <= 3000]  # Remove the last frame because not relevant and sometime not feasible
@@ -103,4 +105,4 @@ def format_df(df : pd.DataFrame = None) -> pd.DataFrame:
             for point in points_columns:
                 df.loc[:,"U:" + point] = df["U:" + point] / time_gcd
             print(f"Normalized time to the greatest common divisor: {time_gcd}")
-    return df
+    return df, time_dependant

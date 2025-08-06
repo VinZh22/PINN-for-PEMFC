@@ -6,6 +6,7 @@ import torch.nn as nn
 import pdb
 from torch.utils.data import DataLoader
 from matplotlib.animation import FuncAnimation
+import matplotlib.patches as patches
 from src.data_process.load_data import import_data
 from tqdm import tqdm
 
@@ -136,6 +137,7 @@ def plot_loss_history(history, save_dir, additional_name = ""):
 
 def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, device, 
                    non_dim=True, forward_transform_input=None, inverse_transform_output = None,
+                   axis_order = [1,2,3],
                    additional_name = "", sample_z = None):
     """
     Plot speed maps over time using the trained model.
@@ -144,9 +146,9 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     model : nn.Module
         The trained model
     X : np.ndarray
-        Meshgrid X coordinates
+        Meshgrid X coordinates (horizontal axis)
     Y : np.ndarray
-        Meshgrid Y coordinates
+        Meshgrid Y coordinates (vertical axis)
     t : np.ndarray
         Time points
     save_dir : str
@@ -158,7 +160,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     forward_transform_input : function, optional
         Function to apply non-dimensionalization to input data
     sample_z : float, optional
-        Sample z-coordinate for 3D data (if applicable)
+        Sample z-coordinate (depth axis) for 3D data (if applicable)
     """
     # Initialize lists to store speed (magnitude) at each time step
     speed_maps = []
@@ -187,11 +189,12 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     cax = ax.contourf(X, Y, speed_maps[0], levels=20, cmap='viridis')
     # circle = plt.Circle((0, 0), .5, color='white', fill=True, linewidth=2) ## ONE HYPERPARAMETER TO ALLOW CHANGE LATER
     plt.colorbar(cax, label='Speed (m/s)')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
+    axis_name = {1: 'x', 2: 'y', 3: 'z'}
+    ax.set_xlabel(axis_name[axis_order[0]])
+    ax.set_ylabel(axis_name[axis_order[1]])
     title = 'Speed Map at t = {:.2f}s'.format(t[0])
     if sample_z is not None:
-        title += f' at z = {sample_z:.6f}'
+        title += f' at {axis_name[axis_order[2]]} = {sample_z:.6f}'
     ax.set_title(title)
 
     def update(frame):
@@ -200,7 +203,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
         # ax.add_artist(circle)
         title = 'Speed Map at t = {:.2f}s'.format(t[0])
         if sample_z is not None:
-            title += f' at z = {sample_z:.6f}'
+            title += f' at {axis_name[axis_order[2]]} = {sample_z:.6f}'
         ax.set_title(title)
         return cax
 
@@ -211,7 +214,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     ani.save(os.path.join(save_dir,'speed_over_time'+additional_name+'.gif'), writer='pillow', fps=15, dpi=100)
     plt.close()
 
-def plot_difference_reference(model, device, data_path, save_dir, df,
+def plot_difference_reference(model, device, data_path, save_dir, df, axis_order = [1,2,3],
                               non_dim=False, forward_transform_input=None, forward_transform_output=None, inverse_transform_input=None):
     """
     Plot for the model the MSE of the space with time, plot at each point in space the average MSE over time and 
@@ -255,8 +258,8 @@ def plot_difference_reference(model, device, data_path, save_dir, df,
     mse_over_space = []
     space = []
     if X.shape[1] == 4: ## 3D case
-        z_sampled = np.unique(X[:,3])[0]
-        mask = X[:,3] == z_sampled 
+        z_sampled = np.unique(X[:,axis_order[2]-1])[0]
+        mask = X[:,axis_order[2]-1] == z_sampled 
         X = X[mask]
         Y_tensor = Y_tensor[mask]
         uvp_pred = uvp_pred[mask]
@@ -275,15 +278,58 @@ def plot_difference_reference(model, device, data_path, save_dir, df,
     space = np.array(space)
     # Plot the MSE over space
     plt.figure(figsize=(10, 6))
-    plt.scatter(space[:,0], space[:,1], c=mse_over_space, cmap='viridis')
+    plt.scatter(space[:,axis_order[0]-1], space[:,axis_order[1]-1], c=mse_over_space, cmap='viridis')
     plt.colorbar(label='MSE')
     title = 'MSE over space'
+    axis_name = {1: 'x', 2: 'y', 3: 'z'}
+    plt.xlabel(axis_name[axis_order[0]])
+    plt.ylabel(axis_name[axis_order[1]])
     if X.shape[1] == 4: ## 3D case
-        title = title + f'at z = {z_sampled:.2f}'
+        title = title + f'at {axis_name[axis_order[2]]} = {z_sampled:.2f}'
     plt.title(title)
-    plt.xlabel('x')
-    plt.ylabel('y')
     plt.grid(True, alpha=0.3)
     plt.savefig(os.path.join(save_dir, 'mse_over_space.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
+def plot_Lagrangian_topology(model, device,  save_dir, file_bc_points,inverse_transform_input=None, constants=None):
+    """
+    Plot the Lagrangian topology of the model.
+    """
+    
+    X, Y = import_data(file_bc_points, None, nondim_input=None)
+
+    deltas = model.deltas
+    parameters = []
+    for delta in deltas:
+        sdf = delta.sdf
+        center = sdf.center.cpu().detach().numpy()
+        tmp = np.array([0.] + center.tolist() + [0.])
+        _, center1, center2, _ = inverse_transform_input(tmp) if inverse_transform_input is not None else (0, center[0], center[1], 0.)
+        center = np.array([center1, center2])
+        dimensions = sdf.dimensions.cpu().detach().numpy()**2
+        tmp = np.array([0.] + dimensions.tolist() + [0.])
+        _, dimensions1, dimensions2, _ = inverse_transform_input(tmp) if inverse_transform_input is not None else (0, dimensions[0], dimensions[1], 0.)
+        if constants is not None:
+            dimensions1 -= constants[0][0] ## subtract the mean position at X
+            dimensions2 -= constants[0][1]
+
+        dimensions = np.array([dimensions1, dimensions2])
+        bottom_left = center - dimensions
+        parameters.append((bottom_left, 2*dimensions))
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for c, d in parameters:
+        rect = patches.Rectangle(c, d[0], d[1], linewidth=1, edgecolor='r', facecolor='none', label = c)
+        ax.add_patch(rect)
+    
+    for i in range(len(X)):
+        ax.plot(X[i][1], X[i][2], 'o', color='blue', markersize=5, zorder = 1)
+
+    ## save the figure
+    ax.autoscale() 
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Lagrangian Topology')
+    plt.grid(True, alpha=0.3)
+    plt.savefig(os.path.join(save_dir, 'lagrangian_topology.png'), dpi=300, bbox_inches='tight')
+    plt.close()
