@@ -38,10 +38,10 @@ pip install -r requirements.txt
 
 ### Usage
 
-Open the main notebook and follow the instructions to run the PINN model:
+To run the program, here is an example of configuration : 
 
 ```bash
-jupyter notebook
+python main.py --data_name_file cylinder.csv --model pirate_mlp --RFF True --in_dim 256 --epochs_data 6000 --train_prop 0.05 --out_dim 3 --update_iter 500 --n_layers 4 --non_dim True --force2D True --optimizer SOAP
 ```
 
 ## Repository Structure
