@@ -20,7 +20,7 @@ from datetime import datetime
 def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epochs, non_dim,
                    forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output,
                    train_prop, data_MC, data_shuffle_size, 
-                   plot_horiz_axis = 1, plot_vert_axis = 2, plot_depth_axis = 3,
+                   plot_horiz_axis = 1, plot_vert_axis = 2, plot_depth_axis = 3, force2D = False,
                    sample_mode = "random", optimizer_name = "Adam", additional_name = ""):
     trained_model = train_obj.train_pinn(
         config=config,
@@ -46,8 +46,8 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
         df=train_obj.data)
     start_T_sim = int(np.min(inp[:, 0]))  # Start time of simulation
     end_T_sim = int(np.max(inp[:, 0]))  # End time of simulation
-    x_min, x_max = float(np.min(inp[:, plot_horiz_axis])), float(np.max(inp[:, plot_horiz_axis]))  # Spatial bounds for x
-    y_min, y_max = float(np.min(inp[:, plot_vert_axis])), float(np.max(inp[:, plot_vert_axis]))  # Spatial bounds for y
+    x_min, x_max = float(np.min(inp[:, plot_horiz_axis])), float(np.max(inp[:, plot_horiz_axis]))  # Spatial bounds for horizontal axis
+    y_min, y_max = float(np.min(inp[:, plot_vert_axis])), float(np.max(inp[:, plot_vert_axis]))  # Spatial bounds for vertical axis
     x = np.linspace(x_min, x_max, 100)  # Spatial grid (x)
     y = np.linspace(y_min, y_max, 100)  # Spatial grid (y)
     t = np.arange(start_T_sim, end_T_sim+1)   # Time grid
@@ -82,13 +82,6 @@ def train_and_save(train_obj:train.Train_Loop, device:str, config, save_dir, epo
 
     return trained_model
 
-def force_2D(df):
-    z_values = df['Points:2'].values
-    z_sampled = z_values[0]
-    df = df[df['Points:2'] == z_sampled]
-    df = df.drop(columns=['Points:2', 'U:2'])
-
-    return df
 
 def main(args):
     seed = args.seed
@@ -109,8 +102,15 @@ def main(args):
     df, time_dependant = load_data.format_df(df)    
 
     if args.force2D:
-        print("Forcing the data to be 2D by removing the z dimension.")
-        df = force_2D(df)
+        print("Forcing the data to be 2D by removing the extra dimension.")
+        df = util_func.force_2D(df, args.plot_depth_axis, args.has_duplicates)
+        ## Because there will be one less dimension, it will change the actual axis' name
+        if args.plot_horiz_axis < args.plot_vert_axis:
+            args.plot_horiz_axis = 1
+            args.plot_vert_axis = 2
+        else:
+            args.plot_horiz_axis = 2
+            args.plot_vert_axis = 1
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -170,7 +170,11 @@ def main(args):
         sample_interval=args.shuffle_iter,
         use_bc = args.use_bc,
         file_bc_path=args.bc_geom_file,
-        time_dependant = time_dependant
+        time_dependant = time_dependant,
+        constants_ND = constants,
+        force2D=args.force2D,
+        has_duplicates=args.has_duplicates,
+        axis_to_remove=args.plot_depth_axis
     )
 
     intermediate_model = train_and_save(
@@ -260,6 +264,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_file', type=str, default="./data/", help='path to the data file')
     parser.add_argument('--data_name_file', type=str, default="cylinder.csv", help='name of the data file')
     parser.add_argument('--force2D', type=bool, default=False, help='whether to force the data to be 2D, i.e., only use x and y coordinates')
+    parser.add_argument('--has_duplicates', type=bool, default=True, help='whether the data has duplicate entries, only used if force2D is True')
     parser.add_argument("--skip_difference", type=bool, default=False, help="whether to skip the difference plot at the end of training")
 
     # training settings
@@ -297,7 +302,7 @@ if __name__ == '__main__':
     # plotting settings
     parser.add_argument('--plot_horiz_axis', type=int, default=1, help='index of the horizontal axis for plotting (1 for x, 2 for y, 3 for z bcs there is time at 0)')
     parser.add_argument('--plot_vert_axis', type=int, default=2, help='index of the vertical axis for plotting (1 for x, 2 for y, 3 for z)')
-    parser.add_argument('--plot_depth_axis', type=int, default=3, help='index of the depth axis for plotting (1 for x, 2 for y, 3 for z)')
+    parser.add_argument('--plot_depth_axis', type=int, default=3, help='index of the depth axis for plotting (1 for x, 2 for y, 3 for z). IMPORTANT : if you want to remove an axis for 2D, it will use this parameter')
 
     args = parser.parse_args()
 

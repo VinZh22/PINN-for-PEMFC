@@ -164,12 +164,17 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
     """
     # Initialize lists to store speed (magnitude) at each time step
     speed_maps = []
-
+    inverse_axis = [0]*len(axis_order)
+    for i, axis in enumerate(axis_order):
+        inverse_axis[axis-1] = i # be 0-indexed for our inverse transform (no time yet)
     for ti in t:
         # Create input tensor: (t, x, y) for all spatial points at time ti
         xy = np.vstack((X.flatten(), Y.flatten())).T
         if sample_z is not None:
             xy = np.hstack((xy, (np.full((len(xy)), sample_z).reshape(-1, 1))))
+        ##Apply permutation along the axis order (inverse to get the normal xy(z))
+        permutation = inverse_axis[:2] if sample_z is None else inverse_axis
+        xy = xy[:, permutation]
         txy = np.hstack((np.full((len(xy)), ti).reshape(-1, 1), xy))
         if non_dim:
             txy = forward_transform_input(txy)
@@ -201,7 +206,7 @@ def plot_speed_map(model, X:np.ndarray, Y:np.ndarray, t:np.ndarray, save_dir, de
         ax.clear()
         cax = ax.contourf(X, Y, speed_maps[frame], levels=20, cmap='viridis')
         # ax.add_artist(circle)
-        title = 'Speed Map at t = {:.2f}s'.format(t[0])
+        title = 'Speed Map at t = {:.2f}s'.format(t[frame])
         if sample_z is not None:
             title += f' at {axis_name[axis_order[2]]} = {sample_z:.6f}'
         ax.set_title(title)
@@ -258,15 +263,20 @@ def plot_difference_reference(model, device, data_path, save_dir, df, axis_order
     mse_over_space = []
     space = []
     if X.shape[1] == 4: ## 3D case
-        z_sampled = np.unique(X[:,axis_order[2]-1])[0]
-        mask = X[:,axis_order[2]-1] == z_sampled 
+        nb_points = 20
+        z_gross_points = np.linspace(X[:,axis_order[2]].min(), X[:,axis_order[2]].max(), nb_points) ## points in the z axis
+        z_gross_width = z_gross_points[1] - z_gross_points[0]
+        z_sampled = np.random.choice(z_gross_points) ## sample a z value
+        mask = X[:,axis_order[2]] >= z_sampled - z_gross_width/2
+        mask &= X[:,axis_order[2]] <= z_sampled + z_gross_width/2
+            
         X = X[mask]
         Y_tensor = Y_tensor[mask]
         uvp_pred = uvp_pred[mask]
     points = np.unique(X[:,1:], axis=0)
     for point in tqdm(points):
         indices = X[:,1:] == point
-        indices = indices[:,0] & indices[:,1]
+        indices = indices[:,axis_order[0]-1] & indices[:,axis_order[1]-1]
         pred = uvp_pred[indices]
         target = Y_tensor[indices]
         mse = nn.MSELoss()(pred, target)
@@ -285,6 +295,9 @@ def plot_difference_reference(model, device, data_path, save_dir, df, axis_order
     plt.xlabel(axis_name[axis_order[0]])
     plt.ylabel(axis_name[axis_order[1]])
     if X.shape[1] == 4: ## 3D case
+        dummy = np.zeros_like(X[0,:])  # Dummy array for inverse transform
+        dummy[axis_order[2]] = z_sampled  # Set the z-coordinate
+        z_sampled_dim = inverse_transform_input(dummy)[axis_order[2]] if non_dim else z_sampled
         title = title + f'at {axis_name[axis_order[2]]} = {z_sampled:.2f}'
     plt.title(title)
     plt.grid(True, alpha=0.3)

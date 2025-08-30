@@ -26,10 +26,13 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     pos_mean = np.mean(input[:,1:], axis=0)
     pos_std = np.std(input[:,1:], axis=0)
     T_mean = np.mean(input[:,0])
-
-    L = np.sqrt(np.sum(pos_std**2)) ## L is the length scale, which is the diagonal of the cylinder
+    T_std = np.std(input[:,0])
+    if T_std == 0:
+        T_std = 1. ## only one time point ie no time in the data
+    L = np.sqrt(np.sum(pos_std**2)) ## L is the length scale used for Re (in order to have the same for different axis)
     ## MSE of the speed, which is the mean of the speed at all points
     speeds =  np.sqrt(np.sum(output[:,:-1]**2, axis=1))
+    speed_std = np.std(output[:,:-1], axis=0)
     U_hat = np.mean(speeds)  # Non-dimensional velocity scale (represented by mean speed)
 
     Re = U_hat * L / nu
@@ -38,10 +41,13 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
     p_hat = p_mean  # Non-dimensional pressure scale (using dynamic pressure)
     # p_hat = U_hat**2  # Non-dimensional pressure scale (using dynamic pressure)
 
-    T_hat = L / U_hat
+    T_hat = L / U_hat # useful for the equation in loss
 
     print("Non-dimensionalization parameters:")
+    print(f"Position standard deviation (pos_std): {pos_std}")
     print(f"Length scale (L): {L}")
+    print(f"Speed standard deviation (speed_std): {speed_std}")
+    print(f"Time std (T_std): {T_std}")
     print(f"Velocity scale (U_hat): {U_hat}")
     print(f"Time scale (T_hat): {T_hat}")
     print(f"Pressure scale (p_hat): {p_hat}")
@@ -53,8 +59,8 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         """
         t,position = X[0], X[1:]
         # Non-dimensionalize velocity and pressure
-        position = (position - pos_mean) / L
-        t = (t - T_mean) / T_hat
+        position = (position - pos_mean) / pos_std
+        t = (t - T_mean) / T_std
 
         return np.array([t] + list(position))
     forward_transform_input = np.vectorize(forward_transform_input, signature='(n)->(n)')
@@ -76,8 +82,8 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
         Inverse transform the input data to original scale.
         """
         t, position = X[0], X[1:]
-        position = position * L + pos_mean
-        t = t * T_hat + T_mean
+        position = position * pos_std + pos_mean
+        t = t * T_std + T_mean
 
         return np.array([t] + list(position))
     inverse_transform_input = np.vectorize(inverse_transform_input, signature='(n)->(n)')
@@ -95,7 +101,8 @@ def get_ND_non_dim(data_path, df:pd.DataFrame, nu = 0.01):
 
 
     return (forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output, Re, 
-            [pos_mean, L, T_mean, U_hat, T_hat, p_hat])
+            [pos_mean, pos_std, T_mean, T_std, U_hat, T_hat, p_hat]) ## we don't give L because it can be inferred as T_hat * U_hat
+            # The constants are unpacked only in loss.py in the NS functions
 
 def save_functions(save_dir, forward_transform_input, forward_transform_output, inverse_transform_input, inverse_transform_output):
     """
@@ -115,3 +122,14 @@ def save_args(args, save_dir):
     with open(os.path.join(save_dir, 'args.txt'), 'w') as f:
         for key, value in vars(args).items():
             f.write(f"{key}: {value}\n")
+
+def force_2D(df, axis_to_remove, has_duplicates = True):
+    name_axis_to_remove = f'Points:{axis_to_remove-1}'
+    name_speed_to_remove = f'U:{axis_to_remove-1}'
+    if has_duplicates:
+        z_values = df[name_axis_to_remove].values
+        z_sampled = z_values[0]
+        df = df[df[name_axis_to_remove] == z_sampled]
+    df = df.drop(columns=[name_axis_to_remove, name_speed_to_remove])
+
+    return df

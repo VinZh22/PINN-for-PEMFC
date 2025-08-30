@@ -152,10 +152,11 @@ class PirateNet(nn.Module):
 
         self.layers1 = []
         self.layers2 = []
-        for i in range(1,len(layers_num) - 1):
+        self.first_layer = nn.Sequential(nn.Linear(layers_num[0], layers_num[1]), activation()).to(device)
+        for i in range(2,len(layers_num) - 1):
             self.layers1.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
             nn.init.xavier_uniform_(self.layers1[-1][0].weight)
-            self.layers2.append(nn.Sequential(nn.Linear(layers_num[i-1], layers_num[i]), activation()).to(device))
+            self.layers2.append(nn.Sequential(nn.Linear(layers_num[i], layers_num[i]), activation()).to(device)) ## bcs called after gettting through layer1 so output size of layer1
             nn.init.xavier_uniform_(self.layers2[-1][0].weight)
 
         self.layers1 = nn.ModuleList(self.layers1)
@@ -166,9 +167,9 @@ class PirateNet(nn.Module):
         nn.init.xavier_uniform_(self.last_layer.weight)
 
     def forward(self, x):
-        # pdb.set_trace()
         U = self.U(x)
         V = self.V(x)
+        x = self.first_layer(x)
         n = len(self.layers1)
         for layer_num in range(n):
             passed = self.layers1[layer_num](x)

@@ -2,6 +2,7 @@ from src.data_process.load_data import import_data
 
 import src.models.loss as Loss_module
 import src.models.model as model
+import src.data_process.load_data as load_data
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -16,7 +17,7 @@ from time import time
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
 from src.tools.plot_tools import evaluate_model
-from src.tools.util_func import save_functions
+from src.tools.util_func import save_functions, force_2D
 from torch.optim.lr_scheduler import ExponentialLR
 from src.tools.soap import SOAP
 
@@ -30,7 +31,7 @@ class Train_Loop(ABC):
 
     def __init__(self, model:model.PINN, device, need_loss, lambda_list, 
                  nu, Re, alpha, batch_size, data:pd.DataFrame,
-                 time_dependant = True,
+                 time_dependant = True, constants_ND = None,
                  nondim_input = None, nondim_output = None, 
                  refresh_bar = 500, log_interval = 50, sample_interval = 1000):
 
@@ -54,7 +55,8 @@ class Train_Loop(ABC):
         self.lambda_boundary = lambda_list[2]
         self.lambda_initial = lambda_list[3]
 
-        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list, time_dependant=time_dependant)
+        self.loss_obj = Loss_module.Loss(model = model, device = device, nu=nu, Re=Re, alpha=alpha, need_loss=need_loss, lambda_list=lambda_list, 
+                                         time_dependant=time_dependant, constants_ND = constants_ND)
         self.loss_history_PDE = []
         self.loss_history_data = []
         self.loss_history_boundary = []
@@ -103,15 +105,22 @@ class Train_Loop(ABC):
         txy_col, output_data, xyt_col_test, output_data_test = self.set_data(config, train_prop)
 
         # If data shuffle, prepare the parameters
-        id_time_window = 0 ## only used if sample_mode is "time_windowed"
-        time_max = txy_col[:, 0].max().item()
-        time_min = txy_col[:, 0].min().item()
-        time_ampl = time_max - time_min
-        divide_size = epochs // self.sample_interval
-        divide_size = max(divide_size, 1)  # Ensure divide_size is at least 1 to avoid division by zero
-        time_step_size = time_ampl / divide_size
+        # Currently not used for standard testing but functional
+        """
+        IDEA : instead of having a small fixed training dataset (the case with time related data because there is too much points), we will regularly shuffle the training dataset from a much larger proportion.
+        In the parameters of the run, we will set this larger proportion. Then the size of the actual training dataset is the number of batch we want per epoch times the size of the batch
+        If sample_mode = random, then the shuffle is a random sample of the dataset
+        if sample_mode = time_windowed, then we will separate the time axis into several time window, and each time we shuffle, we sample randomly from the current+next time window.
+        """
         if train_data_shuffle:
             # Shuffle the data
+            id_time_window = 0 ## only used if sample_mode is "time_windowed"
+            time_max = txy_col[:, 0].max().item()
+            time_min = txy_col[:, 0].min().item()
+            time_ampl = time_max - time_min
+            divide_size = epochs // self.sample_interval
+            divide_size = max(divide_size, 1)  # Ensure divide_size is at least 1 to avoid division by zero
+            time_step_size = time_ampl / divide_size
             size_data_epoch = data_shuffle_size*self.batch_size
 
             print(f"Shuffling data {size_data_epoch} through {txy_col.size(0)}")
@@ -148,7 +157,7 @@ class Train_Loop(ABC):
 
         if optimizer_name == "Adam":
             optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        elif optimizer_name == "SOAP":
+        elif optimizer_name == "SOAP": ## Seems to have much better performance
             optimizer = SOAP(self.model.parameters(), lr=lr)
         else:
             raise ValueError(f"Unknown optimizer: {optimizer_name}")
@@ -193,24 +202,23 @@ class Train_Loop(ABC):
                 self.loss_history_test.append((epoch,float(loss_test)))
                 self.save_log(save_path, loss_log, additional_name)
 
-            if epoch % self.sample_interval == 0:
+            if epoch % self.sample_interval == 0 and train_data_shuffle:
                 ## Let's shuffle another time the data
-                if train_data_shuffle:
-                    if sample_mode == "random":
-                        idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
-                    elif sample_mode == "time_windowed":
-                        id_time_window +=1
-                        print(f"Current id_time_window: {id_time_window} out of {divide_size}")
-                        idx = (total_data_input[:, 0] < time_min + (id_time_window+1) * time_step_size)
-                        idx = torch.where(idx)[0]
-                        sample_idx = torch.randperm(idx.size(0), device=device)[:size_data_epoch]
-                        idx = idx[sample_idx]
-                    else:
-                        raise ValueError(f"Unknown sample mode: {sample_mode}")
-                    txy_col = total_data_input[idx]
-                    output_data = total_data_output[idx]
-                    txy_col = txy_col.detach().requires_grad_(True)
-                    output_data = output_data.detach()
+                if sample_mode == "random":
+                    idx = torch.randperm(total_data_input.size(0), device=device)[:size_data_epoch]
+                elif sample_mode == "time_windowed":
+                    id_time_window +=1
+                    print(f"Current id_time_window: {id_time_window} out of {divide_size}")
+                    idx = (total_data_input[:, 0] < time_min + (id_time_window+1) * time_step_size)
+                    idx = torch.where(idx)[0]
+                    sample_idx = torch.randperm(idx.size(0), device=device)[:size_data_epoch]
+                    idx = idx[sample_idx]
+                else:
+                    raise ValueError(f"Unknown sample mode: {sample_mode}")
+                txy_col = total_data_input[idx]
+                output_data = total_data_output[idx]
+                txy_col = txy_col.detach().requires_grad_(True)
+                output_data = output_data.detach()
         
 
         self.loss_history_test = np.array(self.loss_history_test)
@@ -230,7 +238,7 @@ class Train_Loop(ABC):
         if self.loss_history_data.shape[0] > 0:
             losses["Data Loss (on training points)"] = self.loss_history_data
         if self.loss_history_boundary.shape[0] > 0:
-            losses["Boundary Loss (on training points)"] = self.loss_history_boundary
+            losses["Boundary Loss (on all boundary points)"] = self.loss_history_boundary
         if self.loss_history_initial.shape[0] > 0:
             losses["Initial Condition Loss (on training points)"] = self.loss_history_initial
         return losses
@@ -285,6 +293,7 @@ class Train_Loop(ABC):
             f.write(f"loss_test: {self.loss_history_test[-1]}\n")
     
     def set_condition_data(self):
+        ## Deprecated, initially for train_nodata and create abstract geometry like a few circles.
         radius = 0.99
         x = radius*torch.cos(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
         y = radius*torch.sin(torch.linspace(0, 2*3.14, 50)).reshape(-1,1)
@@ -327,8 +336,9 @@ class Train_Loop_data(Train_Loop):
     """
 
     def __init__(self, model:model.PINN, device, batch_size, data, 
-                 nondim_input = None, nondim_output = None, use_bc = False, time_dependant = True,
-                 nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000, file_bc_path = ""):
+                 nondim_input = None, nondim_output = None, use_bc = False, time_dependant = True, constants_ND = None,
+                 nu=0.01, Re = 100., alpha=0.9, refresh_bar=500, log_interval=50, sample_interval=1000, file_bc_path = "", 
+                 force2D = False, has_duplicates = True, axis_to_remove = 3):
         if use_bc:
             need_loss = [True, True, True, False]
             lambda_list = [1., 1., 1., 0.]
@@ -337,11 +347,17 @@ class Train_Loop_data(Train_Loop):
             lambda_list = [1., 1., 0., 0.]
         super().__init__(model, device,
                          need_loss, lambda_list, refresh_bar=refresh_bar, log_interval=log_interval, sample_interval=sample_interval,
-                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output, time_dependant = time_dependant,)
+                         nu=nu, Re = Re, alpha=alpha, batch_size=batch_size, data=data, nondim_input=nondim_input, nondim_output=nondim_output, 
+                         time_dependant = time_dependant, constants_ND = constants_ND)
         self.use_bc = use_bc
         if use_bc:
             print("Importing boundary condition geometry from", file_bc_path)
-            X_bc, Y_bc = import_data(file_path=file_bc_path, nondim_input= nondim_input, nondim_output= nondim_output)
+            df_bc = pd.read_csv(file_bc_path)
+            df_bc, time_dependant = load_data.format_df(df_bc)    
+            if force2D:
+                print("Forcing the data to be 2D by removing the extra dimension.")
+                df_bc = force_2D(df_bc, axis_to_remove, has_duplicates)
+            X_bc, Y_bc = import_data(file_path=file_bc_path, df = df_bc, nondim_input= nondim_input, nondim_output= nondim_output)
             self.BC_geom = torch.tensor(X_bc, dtype=torch.float32, requires_grad=True).to(device)
             self.BC_target = torch.tensor(Y_bc, dtype=torch.float32, requires_grad=False).to(device)
 
@@ -361,8 +377,7 @@ class Train_Loop_data(Train_Loop):
         self.loss_obj.pde_loss(inputs, outputs, enhanced_gradient=False) ### THERE decide or not to use enhanced gPINN
         if self.use_bc:
             outputs_bc = self.model(self.BC_geom)
-            target = self.BC_target
-            self.loss_obj.boundary_loss(outputs_bc, target)
+            self.loss_obj.boundary_loss(outputs_bc, self.BC_target)
         return self.loss_obj.get_total_loss()
 
     def evaluate(self, test_loader):
@@ -395,6 +410,11 @@ class Train_Loop_data(Train_Loop):
             postfix_dic["lambda_bc"] = float(self.lambda_boundary)
         progress_bar.set_postfix(**postfix_dic)
 
+"""
+For now it is not supported and not updated. 
+But the idea of the object is to train the model without using prior data, only focusing on optimizing the residuals and eventual BC or IC.
+Did not work well at the beginning but could progress later.
+"""
 class Train_Loop_nodata(Train_Loop):
     def __init__(self, model, device, init_path, data, batch_size, nondim_input = None, nondim_output = None, nu=0.01, Re = 100., alpha=0.9):
         super().__init__(model, device, 
