@@ -37,6 +37,7 @@ pip install -r requirements.txt
 ```
 
 ### Usage
+To turn the simulated data into training data for the PINN, use the jupyter notebook (adapt to the specificity of your data).
 
 To run the program, here is an example of configuration : 
 
@@ -46,7 +47,6 @@ python main.py --data_name_file cylinder.csv --model pirate_mlp --RFF True --in_
 
 ## Repository Structure
 
-- `notebooks/` — Jupyter Notebooks for experiments and model training.
 - `src/` — Source code modules for PINN and PEMFC simulation.
 - `data/` — Input datasets and modeling data.
 - `results/` — Output files and visualizations.
